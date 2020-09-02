@@ -1,5 +1,5 @@
 [package]
-name = "mit-6-824-map-reduce"
+name = "map-reduce"
 version = "0.1.0"
 authors = ["Ertugrul Karademir <ekarademir@gmail.com>"]
 edition = "2018"

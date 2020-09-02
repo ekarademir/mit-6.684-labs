@@ -1,4 +1,7 @@
 [workspace]
 members = [
-    "map_reduce"
+    "mit-6-824-map-reduce"
+]
+default-members = [
+    "mit-6-824-map-reduce"
 ]
