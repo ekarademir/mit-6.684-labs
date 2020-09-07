@@ -1,0 +1,11 @@
+version: "3.8"
+services:
+    master:
+        build:
+            context: .
+            target: serve
+        environment:
+            - RUST_LOG=trace
+        ports:
+            - 9001:3000
+
