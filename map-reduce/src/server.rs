@@ -1,34 +1,55 @@
+use super::services::{
+    master_service,
+    worker_service
+};
 
 use std::convert::Infallible;
 use std::error::Error;
 
 use log::{info, error};
 use hyper::service::{make_service_fn, service_fn};
-use hyper::{Body, Request, Response, Server};
+use hyper::{Server};
 
-async fn hello_world(_: Request<Body>) -> Result<Response<Body>, Infallible> {
-    info!("Responding to hello_world request");
-    Ok(
-        Response::new(
-            Body::from(
-                "Hello World!"
-            )
-        )
-    )
+pub enum MachineType {
+    Master,
+    Worker
 }
 
-pub async fn serve() -> Result<(), Box<dyn Error + Send + Sync>> {
-    let make_hello_world_svc = make_service_fn(|_conn| {
+pub async fn serve(machine_type: Option<MachineType>) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let make_master_service = make_service_fn(|_conn| {
         async {
             Ok::<_, Infallible>(
-                service_fn(hello_world)
+                service_fn(master_service)
+            )
+        }
+    });
+
+    let make_worker_service = make_service_fn(|_conn| {
+        async {
+            Ok::<_, Infallible>(
+                service_fn(worker_service)
             )
         }
     });
 
     let addr = ([0, 0, 0, 0], 3000).into();
 
-    let server = Server::bind(&addr).serve(make_hello_world_svc);
+    let master_server = Server::bind(&addr).serve(make_master_service);
+    let worker_server = Server::bind(&addr).serve(make_worker_service);
+
+    let server = match machine_type {
+        Some(mtype) => match mtype {
+            MachineType::Master =>  {
+                master_server
+            },
+            MachineType::Worker => {
+                worker_server
+            }
+        },
+        None => {
+            worker_server
+        }
+    };
 
     info!("Listening on http://{}", addr);
 
