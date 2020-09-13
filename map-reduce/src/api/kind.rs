@@ -2,6 +2,7 @@ use std::env;
 
 use hyper::{Body, Response};
 
+#[derive(Debug)]
 pub enum MachineKind {
     Master,
     Worker
@@ -16,7 +17,7 @@ pub fn kind() -> Response<Body> {
 }
 
 
-fn server_kind() -> MachineKind {
+pub fn server_kind() -> MachineKind {
     if env::var("MAPREDUCE__IS_MASTER").is_err() {
         return MachineKind::Worker;
     } else {

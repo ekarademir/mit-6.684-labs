@@ -1,4 +1,4 @@
-mod kind;
+pub mod kind;
 
 use std::convert::Infallible;
 

@@ -1,4 +1,4 @@
-use super::services::main_service;
+use super::api::main_service;
 
 use std::convert::Infallible;
 use std::error::Error;
@@ -27,3 +27,5 @@ pub async fn serve() -> Result<(), Box<dyn Error + Send + Sync>> {
 
     Ok(())
 }
+
+pub use super::api::kind::server_kind;
