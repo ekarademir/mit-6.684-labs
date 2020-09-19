@@ -1,12 +1,37 @@
 use std::env;
 
+// use bytes::buf::BufExt as _;
+// use futures::stream::{self, StreamExt};
+// use futures::join;
+// use hyper::{Client, Uri};
 use serde::{Deserialize, Serialize};
 use serde_json;
+
+use log::{debug};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum MachineKind {
     Master,
     Worker,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+enum Status {
+    Ready,
+    Busy,
+    NotReady,
+    Offline,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct NetworkNeighbor {
+    addr: String,
+    status: Status,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct HealthResponse {
+    status: Status,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -15,17 +40,6 @@ pub struct AboutResponse {
     version: String,
     network: Option<Vec<String>>,
     master: Option<String>,
-}
-
-pub fn about() -> String {
-    let about_response = AboutResponse {
-        kind: kind(),
-        version: version(),
-        master: master(),
-        network: network(),
-    };
-
-    serde_json::to_string(&about_response).unwrap()
 }
 
 pub fn kind() -> MachineKind {
@@ -46,7 +60,6 @@ fn version() -> String {
 }
 
 fn master() -> Option<String> {
-    // env::var("MAPREDUCE__MASTER").unwrap().trim().to_lowercase()
     if let Ok(master_url) =  env::var("MAPREDUCE__MASTER") {
         Some(master_url.trim().to_lowercase())
     } else {
@@ -54,7 +67,7 @@ fn master() -> Option<String> {
     }
 }
 
-fn network() -> Option<Vec<String>> {
+async fn network() -> Option<Vec<String>> {
     if let Ok(network_urls) =  env::var("MAPREDUCE__NETWORK") {
         let urls = network_urls.trim()
             .to_lowercase()
@@ -62,9 +75,30 @@ fn network() -> Option<Vec<String>> {
             .map(|url| url.trim()) // Clean
             .filter(|url| !url.is_empty()) // Remove empty
             .map(|url| String::from(url)) // Form String
-            .collect();
+            .collect::<Vec<String>>();
         Some(urls)
     } else {
         None
     }
+}
+
+pub async fn health() -> String {
+    debug!("Answering to health()");
+    let health_response = HealthResponse {
+        status: Status::Ready,
+    };
+
+    serde_json::to_string(&health_response).unwrap()
+}
+
+pub async fn about() -> String {
+    debug!("Answering to about()");
+    let about_response = AboutResponse {
+        kind: kind(),
+        version: version(),
+        master: master(),
+        network: network().await,
+    };
+
+    serde_json::to_string(&about_response).unwrap()
 }

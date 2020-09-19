@@ -28,4 +28,4 @@ pub async fn serve() -> Result<(), Box<dyn Error + Send + Sync>> {
     Ok(())
 }
 
-pub use super::api::whois::kind;
+pub use super::api::system::kind;

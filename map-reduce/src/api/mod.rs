@@ -1,4 +1,4 @@
-pub mod whois;
+pub mod system;
 
 use std::convert::Infallible;
 
@@ -10,11 +10,9 @@ pub async fn main_service(request: Request<Body>) -> Result<Response<Body>, Infa
     debug!("Building service");
 
     let response = match (request.method(), request.uri().path()) {
-        (&Method::GET, "/about") => json_response(whois::about(), None),
-        _ => json_response(
-            String::from("{\"error\": \"Not found\"}"),
-            Some(StatusCode::NOT_FOUND)
-        )
+        (&Method::GET, "/about") => json_response(system::about().await, None),
+        (&Method::GET, "/health") => json_response(system::health().await, None),
+        _ => not_found()
     };
 
     Ok(
@@ -33,4 +31,11 @@ fn json_response(json: String, status: Option<StatusCode>) -> Response<Body> {
         .header(header::CONTENT_TYPE, "application/json")
         .body(Body::from(json))
         .unwrap()
+}
+
+fn not_found() -> Response<Body> {
+    json_response(
+        String::from("{\"error\": \"Not found\"}"),
+        Some(StatusCode::NOT_FOUND)
+    )
 }
