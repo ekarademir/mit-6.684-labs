@@ -1,13 +1,15 @@
 use std::env;
 
-// use bytes::buf::BufExt as _;
-// use futures::stream::{self, StreamExt};
-// use futures::join;
-// use hyper::{Client, Uri};
+
+use bytes::buf::BufExt as _;
+use futures::stream::{self, StreamExt};
+use hyper::{Client, Uri, StatusCode};
+use futures::stream::FuturesUnordered;
 use serde::{Deserialize, Serialize};
 use serde_json;
-
 use log::{debug};
+
+use crate::errors::CommunicationError;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum MachineKind {
@@ -21,15 +23,17 @@ enum Status {
     Busy,
     NotReady,
     Offline,
+    Error,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 struct NetworkNeighbor {
     addr: String,
     status: Status,
+    error: CommunicationError
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct HealthResponse {
     status: Status,
 }
@@ -38,7 +42,7 @@ pub struct HealthResponse {
 pub struct AboutResponse {
     kind: MachineKind,
     version: String,
-    network: Option<Vec<String>>,
+    network: Option<Vec<NetworkNeighbor>>,
     master: Option<String>,
 }
 
@@ -67,7 +71,7 @@ fn master() -> Option<String> {
     }
 }
 
-async fn network() -> Option<Vec<String>> {
+async fn network() -> Option<Vec<NetworkNeighbor>> {
     if let Ok(network_urls) =  env::var("MAPREDUCE__NETWORK") {
         let urls = network_urls.trim()
             .to_lowercase()
@@ -76,9 +80,75 @@ async fn network() -> Option<Vec<String>> {
             .filter(|url| !url.is_empty()) // Remove empty
             .map(|url| String::from(url)) // Form String
             .collect::<Vec<String>>();
-        Some(urls)
+
+        let mut neighbor_pings = FuturesUnordered::new();
+        for url in urls {
+            neighbor_pings.push(neighbor_status(url));
+        }
+
+        let mut neighbors: Vec<NetworkNeighbor> = Vec::new();
+
+        while let Some(ping_result) = neighbor_pings.next().await {
+            neighbors.push(ping_result);
+        }
+
+        Some(neighbors)
     } else {
         None
+    }
+}
+
+async fn neighbor_status(url: String) -> NetworkNeighbor {
+    let parsed_uri = url.parse::<Uri>();
+
+    match parsed_uri {
+        Ok(uri) => {
+            debug!("Contacting {:?}", uri);
+            let client = Client::new();
+            let maybe_contents = client.get(uri).await
+                .map(|response| {
+                    hyper::body::to_bytes(response.into_body())
+                });
+
+            match maybe_contents {
+                Ok(content_future) => {
+                    match content_future.await {
+                        Ok(content) => {
+                            let mut de = serde_json::Deserializer::from_reader(content.reader());
+                            let neighbor_health = HealthResponse::deserialize(&mut de);
+
+                            match neighbor_health {
+                                Ok(health) => NetworkNeighbor {
+                                    addr: url,
+                                    status: health.status,
+                                    error: CommunicationError::NoError,
+                                },
+                                _ => NetworkNeighbor {
+                                    addr: url,
+                                    status: Status::Error,
+                                    error: CommunicationError::CantDeserializeResponse,
+                                }
+                            }
+                        },
+                        _ => NetworkNeighbor {
+                            addr: url,
+                            status: Status::Error,
+                            error: CommunicationError::CantCreateResponseBytes,
+                        }
+                    }
+                },
+                _ => NetworkNeighbor {
+                    addr: url,
+                    status: Status::Error,
+                    error: CommunicationError::CantBufferContents,
+                }
+            }
+        },
+        _ => NetworkNeighbor {
+            addr: url,
+            status: Status::Error,
+            error: CommunicationError::CantParseUrl,
+        }
     }
 }
 
