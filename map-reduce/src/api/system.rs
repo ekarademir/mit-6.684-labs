@@ -2,14 +2,15 @@ use std::env;
 
 
 use bytes::buf::BufExt as _;
-use futures::stream::{self, StreamExt};
-use hyper::{Client, Uri, StatusCode};
+use futures::stream::{StreamExt};
+use hyper::{Client, Uri};
 use futures::stream::FuturesUnordered;
 use serde::{Deserialize, Serialize};
 use serde_json;
 use log::{debug};
 
 use crate::errors::CommunicationError;
+use super::endpoints;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum MachineKind {
@@ -30,7 +31,8 @@ enum Status {
 struct NetworkNeighbor {
     addr: String,
     status: Status,
-    error: CommunicationError
+    error: Option<CommunicationError>,
+    reason: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -43,7 +45,7 @@ pub struct AboutResponse {
     kind: MachineKind,
     version: String,
     network: Option<Vec<NetworkNeighbor>>,
-    master: Option<String>,
+    master: Option<String>,  // TODO: make this a network neightbor
 }
 
 pub fn kind() -> MachineKind {
@@ -87,7 +89,6 @@ async fn network() -> Option<Vec<NetworkNeighbor>> {
         }
 
         let mut neighbors: Vec<NetworkNeighbor> = Vec::new();
-
         while let Some(ping_result) = neighbor_pings.next().await {
             neighbors.push(ping_result);
         }
@@ -99,7 +100,7 @@ async fn network() -> Option<Vec<NetworkNeighbor>> {
 }
 
 async fn neighbor_status(url: String) -> NetworkNeighbor {
-    let parsed_uri = url.parse::<Uri>();
+    let parsed_uri = format!("{}{}", url, endpoints::HEALTH).parse::<Uri>();
 
     match parsed_uri {
         Ok(uri) => {
@@ -121,37 +122,45 @@ async fn neighbor_status(url: String) -> NetworkNeighbor {
                                 Ok(health) => NetworkNeighbor {
                                     addr: url,
                                     status: health.status,
-                                    error: CommunicationError::NoError,
+                                    error: None,
+                                    reason: None,
                                 },
-                                _ => NetworkNeighbor {
-                                    addr: url,
-                                    status: Status::Error,
-                                    error: CommunicationError::CantDeserializeResponse,
+                                Err(e) => {
+                                    NetworkNeighbor {
+                                        addr: url,
+                                        status: Status::Error,
+                                        error: Some(CommunicationError::CantDeserializeResponse),
+                                        reason: Some(format!("{:?}", e))
+                                    }
                                 }
                             }
                         },
-                        _ => NetworkNeighbor {
+                        Err(e) => NetworkNeighbor {
                             addr: url,
                             status: Status::Error,
-                            error: CommunicationError::CantCreateResponseBytes,
+                            error: Some(CommunicationError::CantCreateResponseBytes),
+                            reason: Some(format!("{:?}", e))
                         }
                     }
                 },
-                _ => NetworkNeighbor {
+                Err(e) => NetworkNeighbor {
                     addr: url,
                     status: Status::Error,
-                    error: CommunicationError::CantBufferContents,
+                    error: Some(CommunicationError::CantBufferContents),
+                    reason: Some(format!("{:?}", e))
                 }
             }
         },
-        _ => NetworkNeighbor {
+        Err(e) => NetworkNeighbor {
             addr: url,
             status: Status::Error,
-            error: CommunicationError::CantParseUrl,
+            error: Some(CommunicationError::CantParseUrl),
+            reason: Some(format!("{:?}", e))
         }
     }
 }
 
+// API endpoint functions
 pub async fn health() -> String {
     debug!("Answering to health()");
     let health_response = HealthResponse {
