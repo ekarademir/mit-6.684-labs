@@ -1,5 +1,5 @@
 pub mod system;
-mod endpoints;
+pub mod endpoints;
 
 use std::convert::Infallible;
 
