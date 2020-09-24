@@ -18,8 +18,8 @@ pub enum MachineKind {
     Worker,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-enum Status {
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum Status {
     Ready,
     Busy,
     NotReady,
