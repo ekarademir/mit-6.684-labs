@@ -1,15 +1,20 @@
 use std::convert::Infallible;
+use std::thread::{self, JoinHandle};
 
 use log::{info, error};
 use hyper::Server;
 use hyper::service::{make_service_fn, service_fn};
 use tokio::signal;
 use tokio::runtime::Runtime;
+use tokio::sync::{mpsc, watch};
 
 use crate::api::{self, system};
 
-pub fn server_worker() -> fn() {
-    fn inner() {
+pub fn spawn_server(
+    state_receiver: watch::Receiver<system::Status>,
+    worker_sender: mpsc::Sender<system::Status>
+) -> JoinHandle<()> {
+    thread::spawn(|| {
         let mut rt = Runtime::new().unwrap();
 
         rt.block_on(async {
@@ -35,7 +40,10 @@ pub fn server_worker() -> fn() {
                 error!("Problem bootstrapping the server: {}", e);
             }
         });
-    }
-
-    inner
+    })
 }
+// Bunu sunun gibi yapacagiz
+// https://github.com/hyperium/hyper/blob/master/examples/service_struct_impl.rs
+// https://docs.rs/hyper/0.13.8/hyper/service/trait.Service.html
+
+// Refactor server API to a struct

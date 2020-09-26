@@ -1,3 +1,5 @@
+use std::thread::{self, JoinHandle};
+
 use log::{debug, info};
 use hyper::{Client, Uri, StatusCode};
 use tokio::runtime::Runtime;
@@ -19,17 +21,15 @@ async fn wait_for_server() {
     }
 }
 
-pub fn client_worker(
-    receive_status_from_main: watch::Receiver<system::Status>,
-    send_status_to_main: mpsc::Sender<system::Status>
-) -> fn() {
-    fn inner() {
+pub fn spawn_client(
+    state_receiver: watch::Receiver<system::Status>,
+    worker_sender: mpsc::Sender<system::Status>
+) -> JoinHandle<()> {
+    thread::spawn(|| {
         let mut rt = Runtime::new().unwrap();
 
         rt.block_on(async {
             wait_for_server().await;
         });
-    }
-
-    inner
+    })
 }
