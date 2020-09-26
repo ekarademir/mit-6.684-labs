@@ -18,19 +18,23 @@ pub fn spawn_server(
         let mut rt = Runtime::new().unwrap();
 
         rt.block_on(async {
-            let make_service = make_service_fn(|_conn| {
-                async {
-                    Ok::<_, Infallible>(
-                        service_fn(api::main_service)
-                    )
-                }
-            });
+            // let make_service = make_service_fn(|_conn| {
+            //     async {
+            //         Ok::<_, Infallible>(
+            //             service_fn(api::main_service)
+            //         )
+            //     }
+            // });
             info!("I am a {:?} machine", api::system::kind());
             let addr = ([0, 0, 0, 0], 3000).into();
             info!("Listening on http://{}", addr);
 
             let server = Server::bind(&addr)
-                .serve(make_service)
+                // .serve(make_service)
+                .serve(api::MainService {
+                    status_receiver: state_receiver,
+                    status_sender: worker_sender,
+                })
                 .with_graceful_shutdown(async {
                     signal::ctrl_c().await.unwrap();
                     info!("Shutting down");
