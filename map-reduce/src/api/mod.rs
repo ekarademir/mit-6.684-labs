@@ -1,10 +1,16 @@
 pub mod system;
 pub mod endpoints;
 
+use std::future::Future;
+use std::pin::Pin;
+use std::task::{Context, Poll};
+
 use log::{debug};
 use hyper::{Body, Method, Request, Response, StatusCode};
 use hyper::header;
-use tokio::sync::{mpsc, watch};
+use hyper::service::Service;
+
+use crate::MachineState;
 
 fn json_response(json: String, status: Option<StatusCode>) -> Response<Body> {
     let status = if let Some(code) = status {
@@ -19,14 +25,8 @@ fn json_response(json: String, status: Option<StatusCode>) -> Response<Body> {
         .unwrap()
 }
 
-
-use hyper::service::Service;
-use std::future::Future;
-use std::pin::Pin;
-use std::task::{Context, Poll};
-
 pub struct MainService {
-    status: system::Status,
+    state: MachineState,
 }
 
 impl Service<Request<Body>> for MainService {
@@ -46,11 +46,15 @@ impl Service<Request<Body>> for MainService {
                 )
             )
         }
-        let system_status = self.status.clone();
+
+        let (system_status, machine_kind) = {
+            let state = self.state.lock().unwrap();
+            (state.status, state.kind)
+        };
         Box::pin(async move {
             let result = match (req.method(), req.uri().path()) {
                 (&Method::GET, endpoints::HEALTH) => make_result(system::health(system_status).await, Some(StatusCode::OK)),
-                (&Method::GET, endpoints::ABOUT) => make_result(system::about().await, Some(StatusCode::OK)),
+                (&Method::GET, endpoints::ABOUT) => make_result(system::about(machine_kind).await, Some(StatusCode::OK)),
                 _ => make_result(String::from("{\"error\": \"Not found\"}"), None)
             };
             result
@@ -59,7 +63,9 @@ impl Service<Request<Body>> for MainService {
 }
 
 
-pub struct MakeMainService;
+pub struct MakeMainService {
+    pub state: MachineState,
+}
 
 impl<T> Service<T> for MakeMainService {
     type Response = MainService;
@@ -72,8 +78,9 @@ impl<T> Service<T> for MakeMainService {
 
     fn call(&mut self, _: T) -> Self::Future {
         debug!("Making main service");
+        let state = self.state.clone();
         let main_svc = MainService {
-            status: system::Status::NotReady,
+            state,
         };
         let fut = async move { Ok(main_svc) };
         Box::pin(fut)

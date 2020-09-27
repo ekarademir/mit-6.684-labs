@@ -1,6 +1,5 @@
 use std::env;
 
-
 use bytes::buf::BufExt as _;
 use futures::stream::{StreamExt};
 use hyper::{Client, Uri};
@@ -12,7 +11,7 @@ use log::{debug};
 use crate::errors::CommunicationError;
 use super::endpoints;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum MachineKind {
     Master,
     Worker,
@@ -46,18 +45,6 @@ pub struct AboutResponse {
     version: String,
     network: Option<Vec<NetworkNeighbor>>,
     master: Option<String>,  // TODO: make this a network neightbor
-}
-
-pub fn kind() -> MachineKind {
-    if let Ok(kind_value) =  env::var("MAPREDUCE__KIND") {
-        if kind_value.trim().to_lowercase() == "master" {
-            MachineKind::Master
-        } else {
-            MachineKind::Worker
-        }
-    } else {
-        MachineKind::Worker
-    }
 }
 
 fn version() -> String {
@@ -170,10 +157,10 @@ pub async fn health(status: Status) -> String {
     serde_json::to_string(&health_response).unwrap()
 }
 
-pub async fn about() -> String {
+pub async fn about(kind: MachineKind) -> String {
     debug!("Answering to about()");
     let about_response = AboutResponse {
-        kind: kind(),
+        kind,
         version: version(),
         master: master(),
         network: network().await,

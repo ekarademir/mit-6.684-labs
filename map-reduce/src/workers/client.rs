@@ -3,9 +3,9 @@ use std::thread::{self, JoinHandle};
 use log::{debug, info, error};
 use hyper::{Client, Uri, StatusCode};
 use tokio::runtime::Runtime;
-use tokio::sync::{mpsc, watch};
 
 use crate::api::{self, system};
+use crate::MachineState;
 
 async fn wait_for_server() {
     let client = Client::new();
@@ -15,22 +15,26 @@ async fn wait_for_server() {
     debug!("Waiting for server to come online");
     while let Ok(response) = client.get(my_uri.clone()).await {
         if response.status() == StatusCode::OK {
-            // TODO: Add dispatch to state machine that system is ready here
             info!("Server is online");
             break;
         } else if response.status() == StatusCode::NOT_FOUND {
-            error!("Server can't reposnd to helath queries");
+            error!("Server can't respond to health queries");
             break;
         }
     }
 }
 
-pub fn spawn_client() -> JoinHandle<()> {
+pub fn spawn_client(state: MachineState) -> JoinHandle<()> {
+    let main_state = state.clone();
     thread::spawn(|| {
         let mut rt = Runtime::new().unwrap();
 
-        rt.block_on(async {
+        rt.block_on(async move {
             wait_for_server().await;
+            {
+                let mut state = main_state.lock().unwrap();
+                state.status = system::Status::Ready;
+            }
         });
     })
 }
