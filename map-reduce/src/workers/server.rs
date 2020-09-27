@@ -8,10 +8,7 @@ use tokio::sync::{mpsc, watch};
 
 use crate::api::{self, system};
 
-pub fn spawn_server(
-    state_receiver: watch::Receiver<system::Status>,
-    worker_sender: mpsc::Sender<system::Status>
-) -> JoinHandle<()> {
+pub fn spawn_server() -> JoinHandle<()> {
     thread::spawn(|| {
         let mut rt = Runtime::new().unwrap();
 
@@ -21,10 +18,7 @@ pub fn spawn_server(
             info!("Listening on http://{}", addr);
 
             let server = Server::bind(&addr)
-                .serve(api::MakeMainService {
-                    status_receiver: state_receiver,
-                    status_sender: worker_sender,
-                })
+                .serve(api::MakeMainService {})
                 .with_graceful_shutdown(async {
                     signal::ctrl_c().await.unwrap();
                     info!("Shutting down");

@@ -25,10 +25,7 @@ async fn wait_for_server() {
     }
 }
 
-pub fn spawn_client(
-    state_receiver: watch::Receiver<system::Status>,
-    worker_sender: mpsc::Sender<system::Status>
-) -> JoinHandle<()> {
+pub fn spawn_client() -> JoinHandle<()> {
     thread::spawn(|| {
         let mut rt = Runtime::new().unwrap();
 

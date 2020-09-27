@@ -26,8 +26,6 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 pub struct MainService {
-    status_sender: mpsc::Sender<system::Status>,
-    status_receiver: watch::Receiver<system::Status>,
     status: system::Status,
 }
 
@@ -61,10 +59,7 @@ impl Service<Request<Body>> for MainService {
 }
 
 
-pub struct MakeMainService {
-    pub status_sender: mpsc::Sender<system::Status>,
-    pub status_receiver: watch::Receiver<system::Status>,
-}
+pub struct MakeMainService;
 
 impl<T> Service<T> for MakeMainService {
     type Response = MainService;
@@ -78,8 +73,6 @@ impl<T> Service<T> for MakeMainService {
     fn call(&mut self, _: T) -> Self::Future {
         debug!("Making main service");
         let main_svc = MainService {
-            status_sender: self.status_sender.clone(),
-            status_receiver: self.status_receiver.clone(),
             status: system::Status::NotReady,
         };
         let fut = async move { Ok(main_svc) };
