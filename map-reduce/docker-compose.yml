@@ -5,7 +5,29 @@ services:
             context: .
             target: serve
         environment:
-            - RUST_LOG=trace
+            - MAPREDUCE__KIND=master
+            - MAPREDUCE__MASTER=http://master:3000
+            - MAPREDUCE__NETWORK=http://master:3000,http://worker1:3000,http://worker2:3000
         ports:
             - 9001:3000
+    worker1:
+        build:
+            context: .
+            target: serve
+        environment:
+            - MAPREDUCE__KIND=worker
+            - MAPREDUCE__MASTER=http://master:3000
+            - MAPREDUCE__NETWORK=http://master:3000,http://worker1:3000,http://worker2:3000
+        ports:
+            - 9002:3000
+    worker2:
+        build:
+            context: .
+            target: serve
+        environment:
+            - MAPREDUCE__KIND=worker
+            - MAPREDUCE__MASTER=http://master:3000
+            - MAPREDUCE__NETWORK=http://master:3000,http://worker1:3000,http://worker2:3000
+        ports:
+            - 9003:3000
 

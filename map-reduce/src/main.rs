@@ -7,9 +7,11 @@ use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
 use env_logger;
-use log::{debug, error};
+use log::{debug, error, warn};
 
 use api::system;
+
+const DEFAULT_SOCKET: &str = "0.0.0.0:3000";
 
 pub struct Machine {
     kind: system::MachineKind,
@@ -22,8 +24,8 @@ impl Machine {
         let my_address = if let Ok(master_url) = env::var("MAPREDUCE__ADDRESS") {
             master_url.trim().to_lowercase()
         } else {
-            error!("No address provided");
-            panic!("No address provided");
+            warn!("No address provided, defaulting to {}", DEFAULT_SOCKET);
+            String::from(DEFAULT_SOCKET)
         };
 
         let socket:SocketAddr = if let Ok(addr) = my_address.parse::<SocketAddr>() {
@@ -72,3 +74,7 @@ fn main() {
     client_thread.join().unwrap();
     server_thread.join().unwrap();
 }
+
+
+// TODO: Network discovery
+// TODO: master assigns work to workers

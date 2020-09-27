@@ -168,3 +168,6 @@ pub async fn about(kind: MachineKind) -> String {
 
     serde_json::to_string(&about_response).unwrap()
 }
+
+// TODO piggy back kind to Health response and attach kind to neighbors
+// TODO make end point logs info and remove answering to parts
