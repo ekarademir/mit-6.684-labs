@@ -161,10 +161,10 @@ async fn neighbor_status(url: String) -> NetworkNeighbor {
 }
 
 // API endpoint functions
-pub async fn health() -> String {
+pub async fn health(status: Status) -> String {
     debug!("Answering to health()");
     let health_response = HealthResponse {
-        status: Status::Ready,
+        status,
     };
 
     serde_json::to_string(&health_response).unwrap()

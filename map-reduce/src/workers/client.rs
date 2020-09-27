@@ -1,6 +1,6 @@
 use std::thread::{self, JoinHandle};
 
-use log::{debug, info};
+use log::{debug, info, error};
 use hyper::{Client, Uri, StatusCode};
 use tokio::runtime::Runtime;
 use tokio::sync::{mpsc, watch};
@@ -15,7 +15,11 @@ async fn wait_for_server() {
     debug!("Waiting for server to come online");
     while let Ok(response) = client.get(my_uri.clone()).await {
         if response.status() == StatusCode::OK {
+            // TODO: Add dispatch to state machine that system is ready here
             info!("Server is online");
+            break;
+        } else if response.status() == StatusCode::NOT_FOUND {
+            error!("Server can't reposnd to helath queries");
             break;
         }
     }
