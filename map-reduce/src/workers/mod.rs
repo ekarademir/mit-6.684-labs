@@ -1,5 +1,5 @@
-mod client;
+mod init;
 mod server;
 
-pub use client::spawn_client;
+pub use init::spawn_init;
 pub use server::spawn_server;

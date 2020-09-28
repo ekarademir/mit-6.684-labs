@@ -69,9 +69,9 @@ fn main() {
     );
 
     let server_thread = workers::spawn_server(me.clone());
-    let client_thread = workers::spawn_client(me.clone());
+    let init_thread = workers::spawn_init(me.clone());
 
-    client_thread.join().unwrap();
+    init_thread.join().unwrap();
     server_thread.join().unwrap();
 }
 
