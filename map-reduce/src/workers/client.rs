@@ -12,7 +12,6 @@ async fn wait_for_server() {
     let my_uri = format!("http://0.0.0.0:3000{}",
         api::endpoints::HEALTH).parse::<Uri>()
         .unwrap();
-    debug!("Waiting for server to come online");
     while let Ok(response) = client.get(my_uri.clone()).await {
         if response.status() == StatusCode::OK {
             info!("Server is online");
@@ -30,6 +29,7 @@ pub fn spawn_client(state: MachineState) -> JoinHandle<()> {
         let mut rt = Runtime::new().unwrap();
 
         rt.block_on(async move {
+            debug!("Waiting for server to come online");
             wait_for_server().await;
             {
                 let mut state = main_state.lock().unwrap();

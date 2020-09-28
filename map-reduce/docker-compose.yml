@@ -5,6 +5,7 @@ services:
             context: .
             target: serve
         environment:
+            - RUST_LOG=debug
             - MAPREDUCE__KIND=master
             - MAPREDUCE__MASTER=http://master:3000
             - MAPREDUCE__NETWORK=http://master:3000,http://worker1:3000,http://worker2:3000
@@ -15,6 +16,7 @@ services:
             context: .
             target: serve
         environment:
+            - RUST_LOG=debug
             - MAPREDUCE__KIND=worker
             - MAPREDUCE__MASTER=http://master:3000
             - MAPREDUCE__NETWORK=http://master:3000,http://worker1:3000,http://worker2:3000
@@ -25,6 +27,7 @@ services:
             context: .
             target: serve
         environment:
+            - RUST_LOG=debug
             - MAPREDUCE__KIND=worker
             - MAPREDUCE__MASTER=http://master:3000
             - MAPREDUCE__NETWORK=http://master:3000,http://worker1:3000,http://worker2:3000
