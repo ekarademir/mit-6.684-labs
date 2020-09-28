@@ -47,9 +47,17 @@ impl Service<Request<Body>> for MainService {
             )
         }
 
-        let (system_status, machine_kind) = {
+        let (
+            system_status,
+            machine_kind,
+            network_urls,
+        ) = {
             let state = self.state.lock().unwrap();
-            (state.status, state.kind)
+            (
+                state.status,
+                state.kind,
+                state.network_urls.clone(),
+            )
         };
         Box::pin(async move {
             let result = match (req.method(), req.uri().path()) {
@@ -61,7 +69,8 @@ impl Service<Request<Body>> for MainService {
                 ),
                 (&Method::GET, endpoints::ABOUT) => make_result(
                     system::about(
-                        machine_kind.clone()
+                        machine_kind.clone(),
+                        network_urls.as_ref()
                     ).await, Some(StatusCode::OK)
                 ),
                 _ => make_result(String::from("{\"error\": \"Not found\"}"), None)

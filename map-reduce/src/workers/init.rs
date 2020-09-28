@@ -25,9 +25,9 @@ async fn wait_for_server(my_socket: SocketAddr) {
     }
 }
 
-// async fn check_network() {
+async fn check_network() {
 
-// }
+}
 
 pub fn spawn_init(state: MachineState) -> JoinHandle<()> {
     let main_state = state.clone();
@@ -48,6 +48,7 @@ pub fn spawn_init(state: MachineState) -> JoinHandle<()> {
                 let mut state = main_state.lock().unwrap();
                 state.status = system::Status::Ready;
             }
+            // Get network status
         });
     })
 }

@@ -1,5 +1,3 @@
-use std::env;
-
 use bytes::buf::BufExt as _;
 use futures::stream::{StreamExt};
 use hyper::{Client, Uri};
@@ -46,7 +44,7 @@ pub struct HealthResponse {
 pub struct AboutResponse {
     kind: MachineKind,
     version: String,
-    network: Option<Vec<NetworkNeighbor>>,
+    network: Vec<NetworkNeighbor>,
 }
 
 fn version() -> String {
@@ -54,33 +52,21 @@ fn version() -> String {
     return String::from(ver);
 }
 
-async fn network() -> Option<Vec<NetworkNeighbor>> {
-    if let Ok(network_urls) =  env::var("MAPREDUCE__NETWORK") {
-        let urls = network_urls.trim()
-            .to_lowercase()
-            .split(',')
-            .map(|url| url.trim()) // Clean
-            .filter(|url| !url.is_empty()) // Remove empty
-            .map(|url| String::from(url)) // Form String
-            .collect::<Vec<String>>();
-
-        let mut neighbor_pings = FuturesUnordered::new();
-        for url in urls {
-            neighbor_pings.push(neighbor_status(url));
-        }
-
-        let mut neighbors: Vec<NetworkNeighbor> = Vec::new();
-        while let Some(ping_result) = neighbor_pings.next().await {
-            neighbors.push(ping_result);
-        }
-
-        Some(neighbors)
-    } else {
-        None
+async fn network(urls: &Vec<String>) -> Vec<NetworkNeighbor> {
+    let mut neighbor_pings = FuturesUnordered::new();
+    for url in urls {
+        neighbor_pings.push(neighbor_status(&url));
     }
+
+    let mut neighbors: Vec<NetworkNeighbor> = Vec::new();
+    while let Some(ping_result) = neighbor_pings.next().await {
+        neighbors.push(ping_result);
+    }
+
+    neighbors
 }
 
-async fn neighbor_status(url: String) -> NetworkNeighbor {
+async fn neighbor_status(url: &String) -> NetworkNeighbor {
     let parsed_uri = format!("{}{}", url, endpoints::HEALTH).parse::<Uri>();
 
     match parsed_uri {
@@ -101,7 +87,7 @@ async fn neighbor_status(url: String) -> NetworkNeighbor {
 
                             match neighbor_health {
                                 Ok(health) => NetworkNeighbor {
-                                    addr: url,
+                                    addr: url.clone(),
                                     kind: health.kind,
                                     status: health.status,
                                     error: None,
@@ -109,7 +95,7 @@ async fn neighbor_status(url: String) -> NetworkNeighbor {
                                 },
                                 Err(e) => {
                                     NetworkNeighbor {
-                                        addr: url,
+                                        addr: url.clone(),
                                         kind: MachineKind::Unknown,
                                         status: Status::Error,
                                         error: Some(CommunicationError::CantDeserializeResponse),
@@ -119,7 +105,7 @@ async fn neighbor_status(url: String) -> NetworkNeighbor {
                             }
                         },
                         Err(e) => NetworkNeighbor {
-                            addr: url,
+                            addr: url.clone(),
                             kind: MachineKind::Unknown,
                             status: Status::Error,
                             error: Some(CommunicationError::CantCreateResponseBytes),
@@ -128,7 +114,7 @@ async fn neighbor_status(url: String) -> NetworkNeighbor {
                     }
                 },
                 Err(e) => NetworkNeighbor {
-                    addr: url,
+                    addr: url.clone(),
                     kind: MachineKind::Unknown,
                     status: Status::Error,
                     error: Some(CommunicationError::CantBufferContents),
@@ -137,7 +123,7 @@ async fn neighbor_status(url: String) -> NetworkNeighbor {
             }
         },
         Err(e) => NetworkNeighbor {
-            addr: url,
+            addr: url.clone(),
             kind: MachineKind::Unknown,
             status: Status::Error,
             error: Some(CommunicationError::CantParseUrl),
@@ -160,7 +146,7 @@ pub async fn health(kind: MachineKind, status: Status) -> String {
     serde_json::to_string(&health_response).unwrap()
 }
 
-pub async fn about(kind: MachineKind) -> String {
+pub async fn about(kind: MachineKind, network_urls: &Vec<String>) -> String {
     debug!(
         "/about({:?})",
         kind
@@ -168,7 +154,7 @@ pub async fn about(kind: MachineKind) -> String {
     let about_response = AboutResponse {
         kind,
         version: version(),
-        network: network().await,
+        network: network(network_urls).await,
     };
 
     serde_json::to_string(&about_response).unwrap()

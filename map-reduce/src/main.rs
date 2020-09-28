@@ -17,6 +17,7 @@ pub struct Machine {
     kind: system::MachineKind,
     status: system::Status,
     socket: SocketAddr,
+    network_urls: Arc<Vec<String>>,
 }
 
 impl Machine {
@@ -46,10 +47,24 @@ impl Machine {
             system::MachineKind::Worker
         };
 
+        let network_urls = if let Ok(network_string) =  env::var("MAPREDUCE__NETWORK") {
+            network_string.trim()
+                .to_lowercase()
+                .split(',')
+                .map(|url| url.trim()) // Clean
+                .filter(|url| !url.is_empty()) // Remove empty
+                .map(|url| String::from(url)) // Form String
+                .collect::<Vec<String>>()
+        } else {
+            error!("A Network is not defined.");
+            panic!("A Network is not defined.");
+        };
+
         Machine {
             kind,
             status: system::Status::NotReady,
             socket,
+            network_urls: Arc::new(network_urls),
         }
     }
 }
