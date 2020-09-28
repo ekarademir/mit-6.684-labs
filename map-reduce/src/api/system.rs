@@ -1,12 +1,11 @@
 use bytes::buf::BufExt as _;
-use futures::stream::{StreamExt};
 use hyper::{Client, Uri};
-use futures::stream::FuturesUnordered;
 use serde::{Deserialize, Serialize};
 use serde_json;
 use log::{debug};
 
 use crate::errors::CommunicationError;
+use crate::MachineState;
 use super::endpoints;
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -27,11 +26,23 @@ pub enum Status {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct NetworkNeighbor {
-    addr: String,
-    kind: MachineKind,
-    status: Status,
+    pub addr: String,
+    pub kind: MachineKind,
+    pub status: Status,
     error: Option<CommunicationError>,
     reason: Option<String>,
+}
+
+impl Clone for NetworkNeighbor {
+    fn clone(&self) -> NetworkNeighbor {
+        NetworkNeighbor {
+            addr: self.addr.clone(),
+            kind: self.kind.clone(),
+            status: self.status.clone(),
+            error: None,
+            reason: None,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -43,29 +54,11 @@ pub struct HealthResponse {
 #[derive(Serialize, Deserialize)]
 pub struct AboutResponse {
     kind: MachineKind,
-    version: String,
     network: Vec<NetworkNeighbor>,
 }
 
-fn version() -> String {
-    let ver = "0.1.0";
-    return String::from(ver);
-}
-
-pub async fn network(urls: &Vec<String>) -> Vec<NetworkNeighbor> {
-    let mut neighbor_pings = FuturesUnordered::new();
-    for url in urls {
-        neighbor_pings.push(neighbor_status(&url));
-    }
-
-    let mut neighbors: Vec<NetworkNeighbor> = Vec::new();
-    while let Some(ping_result) = neighbor_pings.next().await {
-        neighbors.push(ping_result);
-    }
-
-    neighbors
-}
-
+// TODO: Maybe remove this
+#[allow(dead_code)]
 async fn neighbor_status(url: &String) -> NetworkNeighbor {
     let parsed_uri = format!("{}{}", url, endpoints::HEALTH).parse::<Uri>();
 
@@ -133,11 +126,17 @@ async fn neighbor_status(url: &String) -> NetworkNeighbor {
 }
 
 // API endpoint functions
-pub async fn health(kind: MachineKind, status: Status) -> String {
-    debug!(
-        "/health({:?}, {:?})",
+pub async fn health(state: MachineState) -> String {
+    debug!("/health()");
+    let (
         kind, status
-    );
+    ) = {
+        let machine_state = state.lock().unwrap();
+        (
+            machine_state.kind.clone(),
+            machine_state.status.clone(),
+        )
+    };
     let health_response = HealthResponse {
         kind,
         status,
@@ -146,16 +145,33 @@ pub async fn health(kind: MachineKind, status: Status) -> String {
     serde_json::to_string(&health_response).unwrap()
 }
 
-pub async fn about(kind: MachineKind, network_urls: &Vec<String>) -> String {
-    debug!(
-        "/about({:?})",
-        kind
-    );
+pub async fn about(state: MachineState) -> String {
+    debug!("/about()");
+    let (
+        kind,
+        network
+    ) = {
+        let machine_state = state.lock().unwrap();
+        let mut network: Vec<NetworkNeighbor> = Vec::new();
+        if let Some(master) = &machine_state.master {
+            network.push(master.clone())
+        }
+        if let Some(workers) = &machine_state.workers {
+            workers.iter().for_each(|worker| {
+                network.push(worker.clone());
+            });
+        }
+        (
+            machine_state.kind.clone(),
+            network,
+        )
+    };
     let about_response = AboutResponse {
         kind,
-        version: version(),
-        network: network(network_urls).await,
+        network,
     };
 
     serde_json::to_string(&about_response).unwrap()
 }
+
+// TODO: Add heartbeat end point https://github.com/hyperium/hyper/blob/master/examples/web_api.rs#L79

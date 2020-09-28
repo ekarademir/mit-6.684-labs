@@ -46,32 +46,16 @@ impl Service<Request<Body>> for MainService {
                 )
             )
         }
-
-        let (
-            system_status,
-            machine_kind,
-            network_urls,
-        ) = {
-            let state = self.state.lock().unwrap();
-            (
-                state.status,
-                state.kind,
-                state.network_urls.clone(),
-            )
-        };
+        let state = self.state.clone();
         Box::pin(async move {
             let result = match (req.method(), req.uri().path()) {
                 (&Method::GET, endpoints::HEALTH) => make_result(
-                    system::health(
-                        machine_kind.clone(),
-                        system_status.clone()
-                    ).await, Some(StatusCode::OK)
+                    system::health(state).await,
+                    Some(StatusCode::OK)
                 ),
                 (&Method::GET, endpoints::ABOUT) => make_result(
-                    system::about(
-                        machine_kind.clone(),
-                        network_urls.as_ref()
-                    ).await, Some(StatusCode::OK)
+                    system::about(state).await,
+                    Some(StatusCode::OK)
                 ),
                 _ => make_result(String::from("{\"error\": \"Not found\"}"), None)
             };
@@ -79,7 +63,6 @@ impl Service<Request<Body>> for MainService {
         })
     }
 }
-
 
 pub struct MakeMainService {
     pub state: MachineState,

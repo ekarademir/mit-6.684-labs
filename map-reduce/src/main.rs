@@ -18,7 +18,8 @@ pub struct Machine {
     kind: system::MachineKind,
     status: system::Status,
     socket: SocketAddr,
-    network_urls: Arc<Vec<String>>,
+    master: Option<system::NetworkNeighbor>,
+    workers: Option<Vec<system::NetworkNeighbor>>,
 }
 
 impl Machine {
@@ -48,26 +49,25 @@ impl Machine {
             system::MachineKind::Worker
         };
 
-        let network_urls = if let Ok(network_string) =  env::var("MAPREDUCE__NETWORK") {
-            network_string.trim()
-                .to_lowercase()
-                .split(',')
-                .map(|url| url.trim()) // Clean
-                .filter(|url| !url.is_empty()) // Remove empty
-                .map(|url| String::from(url)) // Form String
-                .collect::<Vec<String>>()
-        } else {
-            error!("A Network is not defined, panicking");
-            panic!("A Network is not defined.");
-        };
-
         Machine {
             kind,
             status: system::Status::NotReady,
             socket,
-            network_urls: Arc::new(network_urls),
+            master: None,
+            workers: None,
         }
     }
+
+    // async fn check_neighbors(&mut self) {
+    //     let neighbors = system::network(self.network_urls.as_ref()).await;
+    //     let workers: Vec<system::NetworkNeighbor> = Vec::new();
+    //     neighbors.iter()
+    //         .for_each(|neighbor| {
+    //             if neighbor.kind == system::MachineKind::Master {
+
+    //             }
+    //         });
+    // }
 }
 
 type MachineState = Arc<Mutex<Machine>>;
@@ -97,4 +97,15 @@ fn main() {
     server_thread.join().unwrap();
 }
 
-// TODO: master assigns work to workers
+// TODO master assigns work to workers
+// TODO add heartbeat thread
+/*
+ag komsulari gereksiz, her node kendini biliyor.
+eger bir node master ise, yeterince workerin aga katilmasini bekler
+eger bir node worker ise, verilen master a heartbeat gonderir, ilk heartbeat ayni zamanda register eder
+
+master node yeterince worker oldukca is yatirmaya devam eder
+    yeterli worker node kiritk seviyenin altina duserse yeni is yuklemez, verilen islerin bitimini
+    takip eder
+
+*/

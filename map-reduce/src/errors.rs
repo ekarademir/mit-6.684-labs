@@ -8,8 +8,3 @@ pub enum CommunicationError {
     CantCreateResponseBytes,
     CantDeserializeResponse,
 }
-
-#[derive(Debug)]
-pub enum SystemError {
-    ServerNotResponding
-}

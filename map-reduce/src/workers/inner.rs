@@ -8,7 +8,6 @@ use tokio::runtime::Runtime;
 
 use crate::api::{self, system};
 use crate::MachineState;
-use crate::errors;
 
 const SLEEP_DURATION_SEC:u64 = 2;
 const RETRY_TIMES:usize = 4;
@@ -39,31 +38,7 @@ async fn wait_for_server(my_socket: SocketAddr) -> Result<(), ()>{
         thread::sleep(wait_duration);
     }
     error!("Giving up on server wait.");
-    return Err(());
-}
-
-async fn verify_network(network_urls: &Vec<String>, my_kind: system::MachineKind) {
-    // TODO: propagate error or panic
-    // eger en az bir master varsa
-    // eger en az bir worker varsa
-    // eger en az bir master ve en az bir worker online ise
-    //      bazi workerlar offline ise warn
-    //      herkesler online ise do nothing
-    // yukaridakilerin hicbiri saglanmadiysa 5 kere daha kontrol et sonra hata ver
-    // panikle
-    //      NetworkState: Healthy, Partial, Unhealthy
-
-    // let network_neighbors = system::network(network_urls).await;
-    // if my_kind == system::MachineKind::Master {
-    //     let mut num_worker = 0;
-    //     for neighbor in network_neighbors {
-    //         if neighbor.kind == system::MachineKind::Worker {}
-    //     }
-    // } else if my_kind == system::MachineKind::Worker {
-
-    // } else {
-    //     error!("Server can't respond to health queries");
-    // }
+    Err(())
 }
 
 pub fn spawn_inner(state: MachineState) -> JoinHandle<()> {
@@ -73,17 +48,9 @@ pub fn spawn_inner(state: MachineState) -> JoinHandle<()> {
 
         rt.block_on(async move {
             // Get socket of this machine
-            let (
-                my_socket,
-                my_kind,
-                network_urls,
-            ) = {
+            let my_socket = {
                 let state = main_state.lock().unwrap();
-                (
-                    state.socket.clone(),
-                    state.kind.clone(),
-                    state.network_urls.clone(),
-                )
+                state.socket.clone()
             };
             debug!("Waiting for server to come online");
             // Wait until server thread is responding
@@ -99,8 +66,6 @@ pub fn spawn_inner(state: MachineState) -> JoinHandle<()> {
                 let mut state = main_state.lock().unwrap();
                 state.status = system::Status::Ready;
             }
-            // Get network status
-            verify_network(network_urls.as_ref(), my_kind).await;
         });
     }).unwrap()
 }
