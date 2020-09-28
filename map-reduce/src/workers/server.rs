@@ -1,18 +1,19 @@
 use std::thread::{self, JoinHandle};
 
-use log::{info, error};
+use log::{info, error, warn};
 use hyper::Server;
 use tokio::signal;
 use tokio::runtime::Runtime;
+use tokio::select;
+use tokio::sync::oneshot::Receiver;
 
 use crate::api;
 use crate::MachineState;
 
-pub fn spawn_server(state: MachineState) -> JoinHandle<()> {
+pub fn spawn_server(state: MachineState, kill_rx: Receiver<()>) -> JoinHandle<()> {
     let main_state = state.clone();
-    thread::spawn(|| {
+    thread::Builder::new().name("Server".into()).spawn(|| {
         let mut rt = Runtime::new().unwrap();
-
         rt.block_on(async {
             let (addr, kind) = {
                 let state = main_state.lock().unwrap();
@@ -29,18 +30,25 @@ pub fn spawn_server(state: MachineState) -> JoinHandle<()> {
                         state: main_state
                     })
                     .with_graceful_shutdown(async {
-                        signal::ctrl_c().await.unwrap();
-                        info!("Shutting down");
+                        select! {
+                            _ = kill_rx => {
+                                warn!("Received shutdown signal from main thread ...");
+                            }
+                            _ = signal::ctrl_c() => {
+                                warn!("Received Ctrl+C ...");
+                            }
+                        }
+                        warn!("... gracefully shutting down");
                     });
 
                 if let Err(e) = server.await {
                     error!("Problem starting the server: {}", e);
                 }
             } else {
-                error!("Can't bind server to given TCP socket");
+                error!("Can't bind server to given TCP socket, panicking");
                 panic!("Can't bind server to given TCP socket");
             }
 
         });
-    })
+    }).unwrap()
 }

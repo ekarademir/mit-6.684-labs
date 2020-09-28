@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex};
 
 use env_logger;
 use log::{debug, error, warn};
+use tokio::sync::oneshot;
 
 use api::system;
 
@@ -33,8 +34,8 @@ impl Machine {
             debug!("Binding socket is {}", addr);
             addr
         } else {
-            error!("Can't parse given address for openning up a socket");
-            panic!("Can't parse given address for openning up a socket");
+            error!("Can't parse given address for openning up a socket, panicking");
+            panic!("Can't parse given address for openning up a socket.");
         };
 
         let kind = if let Ok(kind_value) =  env::var("MAPREDUCE__KIND") {
@@ -56,7 +57,7 @@ impl Machine {
                 .map(|url| String::from(url)) // Form String
                 .collect::<Vec<String>>()
         } else {
-            error!("A Network is not defined.");
+            error!("A Network is not defined, panicking");
             panic!("A Network is not defined.");
         };
 
@@ -83,10 +84,16 @@ fn main() {
         )
     );
 
-    let server_thread = workers::spawn_server(me.clone());
-    let init_thread = workers::spawn_init(me.clone());
+    // Kill trigger to server to shutdown gracefully.
+    let (kill_tx, kill_rx) = oneshot::channel::<()>();
 
-    init_thread.join().unwrap();
+    let server_thread = workers::spawn_server(me.clone(), kill_rx);
+    let inner_thread = workers::spawn_inner(me.clone());
+
+    if let Err(_) = inner_thread.join() {
+        error!("Inner thread panicked, triggering server shutdown");
+        kill_tx.send(()).unwrap();
+    };
     server_thread.join().unwrap();
 }
 

@@ -1,5 +1,5 @@
-mod init;
+mod inner;
 mod server;
 
-pub use init::spawn_init;
+pub use inner::spawn_inner;
 pub use server::spawn_server;

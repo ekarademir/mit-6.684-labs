@@ -9,7 +9,7 @@ use log::{debug};
 use crate::errors::CommunicationError;
 use super::endpoints;
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum MachineKind {
     Master,
     Worker,
@@ -26,7 +26,7 @@ pub enum Status {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct NetworkNeighbor {
+pub struct NetworkNeighbor {
     addr: String,
     kind: MachineKind,
     status: Status,
@@ -52,7 +52,7 @@ fn version() -> String {
     return String::from(ver);
 }
 
-async fn network(urls: &Vec<String>) -> Vec<NetworkNeighbor> {
+pub async fn network(urls: &Vec<String>) -> Vec<NetworkNeighbor> {
     let mut neighbor_pings = FuturesUnordered::new();
     for url in urls {
         neighbor_pings.push(neighbor_status(&url));
