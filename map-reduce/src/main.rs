@@ -75,6 +75,4 @@ fn main() {
     server_thread.join().unwrap();
 }
 
-
-// TODO: Network discovery
 // TODO: master assigns work to workers

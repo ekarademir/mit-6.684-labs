@@ -15,6 +15,7 @@ use super::endpoints;
 pub enum MachineKind {
     Master,
     Worker,
+    Unknown,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
@@ -29,6 +30,7 @@ pub enum Status {
 #[derive(Debug, Serialize, Deserialize)]
 struct NetworkNeighbor {
     addr: String,
+    kind: MachineKind,
     status: Status,
     error: Option<CommunicationError>,
     reason: Option<String>,
@@ -36,6 +38,7 @@ struct NetworkNeighbor {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct HealthResponse {
+    kind: MachineKind,
     status: Status,
 }
 
@@ -44,20 +47,11 @@ pub struct AboutResponse {
     kind: MachineKind,
     version: String,
     network: Option<Vec<NetworkNeighbor>>,
-    master: Option<String>,  // TODO: make this a network neightbor
 }
 
 fn version() -> String {
     let ver = "0.1.0";
     return String::from(ver);
-}
-
-fn master() -> Option<String> {
-    if let Ok(master_url) =  env::var("MAPREDUCE__MASTER") {
-        Some(master_url.trim().to_lowercase())
-    } else {
-        None
-    }
 }
 
 async fn network() -> Option<Vec<NetworkNeighbor>> {
@@ -108,6 +102,7 @@ async fn neighbor_status(url: String) -> NetworkNeighbor {
                             match neighbor_health {
                                 Ok(health) => NetworkNeighbor {
                                     addr: url,
+                                    kind: health.kind,
                                     status: health.status,
                                     error: None,
                                     reason: None,
@@ -115,6 +110,7 @@ async fn neighbor_status(url: String) -> NetworkNeighbor {
                                 Err(e) => {
                                     NetworkNeighbor {
                                         addr: url,
+                                        kind: MachineKind::Unknown,
                                         status: Status::Error,
                                         error: Some(CommunicationError::CantDeserializeResponse),
                                         reason: Some(format!("{:?}", e))
@@ -124,6 +120,7 @@ async fn neighbor_status(url: String) -> NetworkNeighbor {
                         },
                         Err(e) => NetworkNeighbor {
                             addr: url,
+                            kind: MachineKind::Unknown,
                             status: Status::Error,
                             error: Some(CommunicationError::CantCreateResponseBytes),
                             reason: Some(format!("{:?}", e))
@@ -132,6 +129,7 @@ async fn neighbor_status(url: String) -> NetworkNeighbor {
                 },
                 Err(e) => NetworkNeighbor {
                     addr: url,
+                    kind: MachineKind::Unknown,
                     status: Status::Error,
                     error: Some(CommunicationError::CantBufferContents),
                     reason: Some(format!("{:?}", e))
@@ -140,6 +138,7 @@ async fn neighbor_status(url: String) -> NetworkNeighbor {
         },
         Err(e) => NetworkNeighbor {
             addr: url,
+            kind: MachineKind::Unknown,
             status: Status::Error,
             error: Some(CommunicationError::CantParseUrl),
             reason: Some(format!("{:?}", e))
@@ -148,9 +147,13 @@ async fn neighbor_status(url: String) -> NetworkNeighbor {
 }
 
 // API endpoint functions
-pub async fn health(status: Status) -> String {
-    debug!("Answering to health()");
+pub async fn health(kind: MachineKind, status: Status) -> String {
+    debug!(
+        "/health({:?}, {:?})",
+        kind, status
+    );
     let health_response = HealthResponse {
+        kind,
         status,
     };
 
@@ -158,16 +161,15 @@ pub async fn health(status: Status) -> String {
 }
 
 pub async fn about(kind: MachineKind) -> String {
-    debug!("Answering to about()");
+    debug!(
+        "/about({:?})",
+        kind
+    );
     let about_response = AboutResponse {
         kind,
         version: version(),
-        master: master(),
         network: network().await,
     };
 
     serde_json::to_string(&about_response).unwrap()
 }
-
-// TODO piggy back kind to Health response and attach kind to neighbors
-// TODO make end point logs info and remove answering to parts

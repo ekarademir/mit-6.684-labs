@@ -53,8 +53,17 @@ impl Service<Request<Body>> for MainService {
         };
         Box::pin(async move {
             let result = match (req.method(), req.uri().path()) {
-                (&Method::GET, endpoints::HEALTH) => make_result(system::health(system_status).await, Some(StatusCode::OK)),
-                (&Method::GET, endpoints::ABOUT) => make_result(system::about(machine_kind).await, Some(StatusCode::OK)),
+                (&Method::GET, endpoints::HEALTH) => make_result(
+                    system::health(
+                        machine_kind.clone(),
+                        system_status.clone()
+                    ).await, Some(StatusCode::OK)
+                ),
+                (&Method::GET, endpoints::ABOUT) => make_result(
+                    system::about(
+                        machine_kind.clone()
+                    ).await, Some(StatusCode::OK)
+                ),
                 _ => make_result(String::from("{\"error\": \"Not found\"}"), None)
             };
             result
