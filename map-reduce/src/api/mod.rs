@@ -57,6 +57,10 @@ impl Service<Request<Body>> for MainService {
                     system::about(state).await,
                     Some(StatusCode::OK)
                 ),
+                (&Method::POST, endpoints::HEARTBEAT) => make_result(
+                    system::heartbeat(req).await,
+                    Some(StatusCode::OK)
+                ),
                 _ => make_result(String::from("{\"error\": \"Not found\"}"), None)
             };
             result
