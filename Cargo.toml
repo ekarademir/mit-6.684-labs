@@ -1,6 +1,7 @@
 [workspace]
 members = [
-    "map-reduce"
+    "map-reduce",
+    "playground",
 ]
 default-members = [
     "map-reduce"
