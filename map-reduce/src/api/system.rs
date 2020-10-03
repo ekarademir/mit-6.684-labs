@@ -1,10 +1,10 @@
 use std::time::Instant;
 
 use bytes::buf::BufExt as _;
-use hyper::{header, Body, Client, Method, Request, Uri};
+use hyper::{header, Body, Client, Request, Uri};
 use serde::{Deserialize, Serialize};
 use serde_json;
-use log::{debug};
+use log::{debug, info};
 
 use crate::errors::CommunicationError;
 use crate::MachineState;
@@ -23,8 +23,10 @@ pub enum Status {
     Busy,
     NotReady,
     Offline,
+    Online,
     Error,
 }
+
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct NetworkNeighbor {
@@ -32,8 +34,8 @@ pub struct NetworkNeighbor {
     pub kind: MachineKind,
     pub status: Status,
     pub last_heartbeat_ns: u128,
-    error: Option<CommunicationError>,
-    reason: Option<String>,
+    pub error: Option<CommunicationError>,
+    pub reason: Option<String>,
 }
 
 impl Clone for NetworkNeighbor {
@@ -74,6 +76,7 @@ pub struct Heartbeat {
     status: Status,
 }
 
+// API Responses
 #[derive(Debug, Serialize, Deserialize)]
 pub struct HealthResponse {
     kind: MachineKind,
@@ -84,6 +87,25 @@ pub struct HealthResponse {
 pub struct AboutResponse {
     kind: MachineKind,
     network: Vec<NetworkNeighbor>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct HeartbeatResponse {
+    status: Status,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct ErrorResponse {
+    error: Option<String>,
+}
+
+impl ErrorResponse {
+    pub fn not_found(item: &str) -> String {
+        let resp = ErrorResponse {
+            error: Some(format!("{} is not found", item)),
+        };
+        serde_json::to_string(&resp).unwrap()
+    }
 }
 
 // API endpoint functions
@@ -107,13 +129,38 @@ pub async fn health(state: MachineState) -> String {
     serde_json::to_string(&health_response).unwrap()
 }
 
-pub async fn heartbeat(req: Request<Body>) -> String {
+pub async fn heartbeat(req: Request<Body>, state: MachineState) -> String {
     debug!("/heartbeat()");
+    let uri = req.uri().clone();
     let body = hyper::body::aggregate(req).await.unwrap();
     let heartbeat:Heartbeat = serde_json::from_reader(body.reader()).unwrap();
-    // serde_json::to_string(&heartbeat).unwrap()
-    // TODO: Update worker/master list with heartbeat
-    String::from("{\"heartbeat\": \"OK\"}")
+    /*
+    TODO
+    Gives worker1_1  | [2020-10-03T16:32:53Z DEBUG map_reduce::api::system] Received HB response Response { status: 404, version: HTTP/1.1, headers: {"content-type": "application/json", "content-length": "26", "date": "Sat, 03 Oct 2020 16:32:53 GMT"}, body: Body(Streaming) }
+    */
+    let status = {
+        let machine_state = state.lock().unwrap();
+        if let Some(workers_ref) = machine_state.workers.clone() {
+            let addr = uri.to_string();
+            info!("Heartbeat received from a {:?} at {}", heartbeat.kind, addr);
+            workers_ref.lock().unwrap().insert(uri,
+                NetworkNeighbor {
+                    addr,
+                    status: heartbeat.status,
+                    kind: heartbeat.kind,
+                    last_heartbeat_ns: 0,
+                    error: None,
+                    reason: None,
+                }
+            );
+        }
+
+        machine_state.status.clone()
+    };
+    let resp = HeartbeatResponse {
+        status
+    };
+    serde_json::to_string(&resp).unwrap()
 }
 
 pub async fn about(state: MachineState) -> String {
@@ -128,7 +175,7 @@ pub async fn about(state: MachineState) -> String {
             network.push(master.clone())
         }
         if let Some(workers) = &machine_state.workers {
-            workers.values().for_each(|worker| {
+            workers.lock().unwrap().values().for_each(|worker| {
                 network.push(worker.clone());
             });
         }
@@ -144,9 +191,6 @@ pub async fn about(state: MachineState) -> String {
 
     serde_json::to_string(&about_response).unwrap()
 }
-
-// TODO: Add heartbeat end point https://github.com/hyperium/hyper/blob/master/examples/web_api.rs#L79
-
 
 // POSSIBLE DEAD CODE
 // TODO: Maybe remove this

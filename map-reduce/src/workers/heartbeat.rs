@@ -1,7 +1,7 @@
 use std::time::Duration;
 use std::thread::{self, JoinHandle};
 
-use log::{debug, info, error, warn};
+use log::{debug, info, warn};
 use tokio::runtime::Runtime;
 use tokio::sync::oneshot::Receiver;
 use tokio::select;
@@ -9,48 +9,78 @@ use tokio::select;
 use crate::{MachineState, Workers};
 use crate::system;
 
-const SLEEP_DURATION_SEC:u64 = 2;
+const SLEEP_DURATION_SEC:u64 = 10;
 
 
-async fn send_heartbeats(maybe_workers: Option<Workers>, kind: system::MachineKind, status:system::Status) {
+async fn send_heartbeats(
+    state: MachineState
+) {
     let wait_duration = Duration::from_secs(SLEEP_DURATION_SEC);
-    // TODO: if worker: send hb to master, if master send hb to workers
-    loop {
-        if let Some(workers) = maybe_workers.clone() {
-            info!("Sending heartbeat");
-            for worker in workers.values() {
-                // TODO: Make this concurrent
-                worker.send_heartbeat(kind, status).await;
+    let kind = {
+        state.lock().unwrap().kind
+    };
+    if kind == system::MachineKind::Master {
+        debug!("Startig to heartbets to workers from {:?}", kind);
+        loop {
+            let (
+                maybe_workers,
+                status,
+            ) = {
+                let my_state = state.lock().unwrap();
+                (
+                    my_state.workers.clone(),
+                    my_state.status.clone(),
+                )
+            };
+            if let Some(workers) = maybe_workers.clone() {
+                info!("Sending heartbeat to workers");
+                for worker in workers.lock().unwrap().values() {
+                    // TODO: Make this concurrent
+                    worker.send_heartbeat(kind, status).await;
+                }
+            } else {
+                warn!("No workers have been registered yet. Sleeping.");
             }
+            thread::sleep(wait_duration);
         }
-        thread::sleep(wait_duration);
+    } else if kind == system::MachineKind::Worker {
+        loop {
+            let (
+                maybe_master,
+                status,
+            ) = {
+                let my_state = state.lock().unwrap();
+                (
+                    my_state.master.clone(),
+                    my_state.status.clone(),
+                )
+            };
+            if let Some(master) = maybe_master.clone() {
+                info!("Sending heartbeat to master");
+                master.send_heartbeat(kind, status).await;
+            } else {
+                warn!("No master is defined yet. Sleeping.");
+            }
+            thread::sleep(wait_duration);
+        }
     }
 }
 
 pub fn spawn_hearbeat(state: MachineState, kill_rx: Receiver<()>) -> JoinHandle<()> {
-    let main_state = state.clone();
+    // let main_state = state.clone();
     thread::Builder::new().name("Heartbeat".into()).spawn(|| {
         let mut rt = Runtime::new().unwrap();
 
         rt.block_on(async move {
-            let (
-                my_kind,
-                my_status,
-                maybe_workers,
-            ) = {
-                let state = main_state.lock().unwrap();
-                (
-                    state.kind.clone(),
-                    state.status.clone(),
-                    state.workers.clone(),
-                )
-            };
-
             select! {
-                _ = kill_rx => {}
-                _ = send_heartbeats(maybe_workers, my_kind, my_status) => {}
+                _ = kill_rx => {
+                    warn!("Kill signal received, stopping heartbeat loop");
+                }
+                _ = send_heartbeats(state) => {}
             }
 
         });
     }).unwrap()
 }
+
+// TODO: Thread loops forever, ignores select, loop on select

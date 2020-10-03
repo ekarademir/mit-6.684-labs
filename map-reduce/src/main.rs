@@ -10,6 +10,7 @@ use std::time::Instant;
 
 use env_logger;
 use log::{debug, error, warn};
+use hyper::Uri;
 use tokio::sync::{oneshot};
 
 use api::system;
@@ -17,7 +18,30 @@ use api::system;
 const DEFAULT_SOCKET: &str = "0.0.0.0:3000";
 
 type MachineState = Arc<Mutex<Machine>>;
-type Workers = Arc<HashMap<hyper::Uri, system::NetworkNeighbor>>;
+type Workers = Arc<Mutex<HashMap<hyper::Uri, system::NetworkNeighbor>>>;
+
+pub trait HostPort {
+    fn host_port(&self) -> String;
+}
+
+impl HostPort for Uri {
+    fn host_port(&self) -> String {
+        let auth = self.clone().into_parts().authority.unwrap();
+        if let Some(port) = auth.port() {
+            format!(
+                "{}:{}",
+                auth.host(),
+                port
+            )
+        } else {
+            format!(
+                "{}",
+                auth.host()
+            )
+        }
+    }
+}
+
 pub struct Machine {
     kind: system::MachineKind,
     status: system::Status,
@@ -25,12 +49,13 @@ pub struct Machine {
     boot_instant: Instant,
     master: Option<system::NetworkNeighbor>,
     workers: Option<Workers>,
+    master_uri: Option<Uri>,
 }
 
 impl Machine {
     fn new() -> Machine {
-        let my_address = if let Ok(master_url) = env::var("MAPREDUCE__ADDRESS") {
-            master_url.trim().to_lowercase()
+        let my_address = if let Ok(my_url) = env::var("MAPREDUCE__ADDRESS") {
+            my_url.trim().to_lowercase()
         } else {
             warn!("No address provided, defaulting to {}", DEFAULT_SOCKET);
             String::from(DEFAULT_SOCKET)
@@ -54,6 +79,12 @@ impl Machine {
             system::MachineKind::Worker
         };
 
+        let master_uri = if let Ok(url) = env::var("MAPREDUCE__MASTER") {
+            url.trim().to_lowercase().parse::<Uri>().ok()
+        } else {
+            None
+        };
+
         Machine {
             kind,
             status: system::Status::NotReady,
@@ -61,19 +92,9 @@ impl Machine {
             boot_instant: Instant::now(),
             master: None,
             workers: None,
+            master_uri,
         }
     }
-
-    // async fn check_neighbors(&mut self) {
-    //     let neighbors = system::network(self.network_urls.as_ref()).await;
-    //     let workers: Vec<system::NetworkNeighbor> = Vec::new();
-    //     neighbors.iter()
-    //         .for_each(|neighbor| {
-    //             if neighbor.kind == system::MachineKind::Master {
-
-    //             }
-    //         });
-    // }
 }
 
 fn main() {
@@ -107,7 +128,6 @@ fn main() {
 }
 
 // TODO master assigns work to workers
-// TODO add heartbeat thread
 /*
 ag komsulari gereksiz, her node kendini biliyor.
 eger bir node master ise, yeterince workerin aga katilmasini bekler
@@ -118,3 +138,4 @@ master node yeterince worker oldukca is yatirmaya devam eder
     takip eder
 
 */
+// TODO (Optional) Make it workable via https
