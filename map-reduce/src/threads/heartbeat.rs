@@ -24,6 +24,7 @@ async fn send_heartbeats(
         }
         debug!("Starting heartbeats from {:?}", kind);
         if kind == system::MachineKind::Master {
+            // TODO channel for writing and reading workers
             // let (
             //     workers_ref,
             //     status,
@@ -48,16 +49,18 @@ async fn send_heartbeats(
             let (
                 maybe_master,
                 status,
+                host,
             ) = {
                 let my_state = state.lock().unwrap();
                 (
                     my_state.master.clone(),
                     my_state.status.clone(),
+                    my_state.host.clone(),
                 )
             };
             if let Some(master) = maybe_master.clone() {
                 info!("Sending heartbeat to master");
-                master.send_heartbeat(kind, status).await;
+                master.send_heartbeat(host, kind, status).await;
             } else {
                 warn!("No master is defined yet. Sleeping.");
             }

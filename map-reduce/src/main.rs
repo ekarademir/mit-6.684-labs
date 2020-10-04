@@ -2,7 +2,7 @@ mod api;
 mod errors;
 mod threads;
 
-use std::collections::hash_map::HashMap;
+use std::collections::HashSet;
 use std::env;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
@@ -18,7 +18,7 @@ use api::system;
 const DEFAULT_SOCKET: &str = "0.0.0.0:3000";
 
 type MachineState = Arc<Mutex<Machine>>;
-type Workers = Arc<Mutex<HashMap<hyper::Uri, system::NetworkNeighbor>>>;
+type Workers = Arc<Mutex<HashSet<system::NetworkNeighbor>>>;
 type HeartbeatKillSwitch = Arc<Mutex<oneshot::Receiver<()>>>;
 
 pub trait HostPort {
@@ -47,6 +47,7 @@ pub struct Machine {
     kind: system::MachineKind,
     status: system::Status,
     socket: SocketAddr,
+    host: String,
     boot_instant: Instant,
     master: Option<system::NetworkNeighbor>,
     workers: Workers,
@@ -60,6 +61,17 @@ impl Machine {
         } else {
             warn!("No address provided, defaulting to {}", DEFAULT_SOCKET);
             String::from(DEFAULT_SOCKET)
+        };
+
+        let host = if let Ok(my_url) = env::var("MAPREDUCE__HOST") {
+            format!(
+                "http://{}",
+                my_url.parse::<Uri>().unwrap()
+                    .host_port()
+            )
+        } else {
+            error!("No host address is provided, panicking");
+            panic!("No host address is provided.");
         };
 
         let socket:SocketAddr = if let Ok(addr) = my_address.parse::<SocketAddr>() {
@@ -88,7 +100,7 @@ impl Machine {
 
         let workers = Arc::new(
             Mutex::new(
-                HashMap::new()
+                HashSet::new()
             )
         );
 
@@ -96,6 +108,7 @@ impl Machine {
             kind,
             status: system::Status::NotReady,
             socket,
+            host,
             boot_instant: Instant::now(),
             master: None,
             workers,
@@ -142,6 +155,8 @@ fn main() {
     stop_hb_tx.send(()).unwrap();
     heartbeat_thread.join().unwrap();
 }
+
+// TODO handle SIGTERM to kill threads too
 
 // TODO master assigns work to workers
 /*

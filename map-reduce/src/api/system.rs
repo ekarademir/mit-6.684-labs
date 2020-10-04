@@ -1,93 +1,16 @@
 use std::time::Instant;
 
 use bytes::buf::BufExt as _;
-use hyper::{header, Body, Client, Request, Uri};
+use hyper::{Body, Request, Uri};
 use serde::{Deserialize, Serialize};
 use serde_json;
 use log::{debug, info};
 
-use crate::errors::CommunicationError;
-use crate::{MachineState, HostPort};
-use super::endpoints;
+use crate::MachineState;
 
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-pub enum MachineKind {
-    Master,
-    Worker,
-    Unknown,
-}
-
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-pub enum Status {
-    Ready,
-    Busy,
-    NotReady,
-    Offline,
-    Online,
-    Error,
-}
-
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct NetworkNeighbor {
-    pub addr: String,
-    pub kind: MachineKind,
-    pub status: Status,
-    pub last_heartbeat_ns: u128,
-}
-
-impl Clone for NetworkNeighbor {
-    fn clone(&self) -> NetworkNeighbor {
-        NetworkNeighbor {
-            addr: self.addr.clone(),
-            kind: self.kind.clone(),
-            status: self.status.clone(),
-            last_heartbeat_ns: self.last_heartbeat_ns.clone(),
-        }
-    }
-}
-
-impl NetworkNeighbor {
-    pub async fn send_heartbeat(&self, kind: MachineKind, status: Status) {
-        let client = Client::new();
-        // TODO: decide what to do with the response
-        /*
-        If can't connect to worker and worker has not been responding for a WHILE (to be determined)
-            then drop the worker from list
-            - If I am the worker panic and fail/ drop master stop working
-        If parsing error, then drop worker immediately
-            - If I am worker .......
-        */
-        if let Ok(uri) = self.addr.parse::<Uri>() {
-            let hb = Heartbeat {
-                kind,
-                status
-            };
-            let req_body = Body::from(serde_json::to_string(&hb).unwrap());
-
-            let uri = format!("http://{}{}",
-                uri.host_port(),
-                endpoints::HEARTBEAT
-            ).parse::<Uri>().unwrap();
-
-            debug!("Sending request to {:?}", uri);
-            let req = Request::post(uri)
-                .header(header::CONTENT_TYPE, "application/json")
-                .body(req_body)
-                .unwrap();
-
-            if let Ok(hb) = client.request(req).await {
-                debug!("Received HB response {:?}", hb);
-            }
-        }
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Heartbeat {
-    kind: MachineKind,
-    status: Status,
-}
+pub use super::network_neighbor::{
+    MachineKind, Status, NetworkNeighbor, Heartbeat
+};
 
 // API Responses
 #[derive(Debug, Serialize, Deserialize)]
@@ -150,16 +73,11 @@ pub async fn health(state: MachineState) -> String {
 
 pub async fn heartbeat(req: Request<Body>, state: MachineState) -> String {
     debug!("/heartbeat()");
-    // let uri = req.uri().clone();
-    // TODO correctly get URL of requester
-    let uri = req.headers().clone();
     match hyper::body::aggregate(req).await {
         Ok(body) => {
             match serde_json::from_reader::<_, Heartbeat>(body.reader()) {
                 Ok(heartbeat) => {
-                    let uri = uri.get("host").unwrap();
-                    let addr = format!("{}", uri.to_str().unwrap());
-                    info!("Heartbeat received from a {:?} at {}", heartbeat.kind, addr);
+                    info!("Heartbeat received from a {:?} at {}", heartbeat.kind, heartbeat.host);
                     let (
                         my_status,
                         my_kind,
@@ -175,9 +93,9 @@ pub async fn heartbeat(req: Request<Body>, state: MachineState) -> String {
                         )
                     };
                     if my_kind == MachineKind::Master {
-                        let uri = addr.parse::<Uri>().unwrap();
+                        let uri = heartbeat.host.parse::<Uri>().unwrap();
                         let worker = NetworkNeighbor {
-                            addr,
+                            addr: heartbeat.host,
                             status: heartbeat.status,
                             kind: heartbeat.kind,
                             last_heartbeat_ns: Instant::now()
@@ -187,7 +105,7 @@ pub async fn heartbeat(req: Request<Body>, state: MachineState) -> String {
                         match workers.try_lock() {
                             Ok(mut workers) => {
                                 debug!("Inserting/updating new worker {}", uri);
-                                workers.insert(uri, worker);
+                                workers.replace(worker);
                             },
                             Err(e) =>  {
                                 debug!("Couldn't acquire write lock to workers. {:?}", e);
@@ -224,7 +142,7 @@ pub async fn about(state: MachineState) -> String {
         if let Some(master) = &machine_state.master {
             network.push(master.clone())
         }
-        machine_state.workers.lock().unwrap().values().for_each(|worker| {
+        machine_state.workers.lock().unwrap().iter().for_each(|worker| {
             network.push(worker.clone());
         });
         (

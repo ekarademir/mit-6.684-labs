@@ -1,5 +1,6 @@
 pub mod system;
 pub mod endpoints;
+pub mod network_neighbor;
 
 use std::future::Future;
 use std::pin::Pin;
@@ -9,6 +10,7 @@ use log::{debug};
 use hyper::{Body, Method, Request, Response, StatusCode};
 use hyper::header;
 use hyper::service::Service;
+use hyper::server::conn;
 
 use crate::MachineState;
 
