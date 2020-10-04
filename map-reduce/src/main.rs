@@ -1,6 +1,6 @@
 mod api;
 mod errors;
-mod workers;
+mod threads;
 
 use std::collections::hash_map::HashMap;
 use std::env;
@@ -11,7 +11,7 @@ use std::time::Instant;
 use env_logger;
 use log::{debug, error, warn};
 use hyper::Uri;
-use tokio::sync::{oneshot};
+use tokio::sync::{mpsc, oneshot};
 
 use api::system;
 
@@ -120,6 +120,8 @@ fn main() {
     let (kill_tx, kill_rx) = oneshot::channel::<()>();
     // Kill trigger to heartbeat loop to shutdown gracefully.
     let (stop_hb_tx, stop_hb_rx) = oneshot::channel::<()>();
+    // Heartbeat funnel
+    let (heartbeat_tx, mut heartbeat_rx) = mpsc::channel::<system::NetworkNeighbor>(100);
 
     let heartbeat_kill_sw: HeartbeatKillSwitch = Arc::new(
         Mutex::new(
@@ -127,9 +129,9 @@ fn main() {
         )
     );
 
-    let server_thread = workers::spawn_server(me.clone(), kill_rx);
-    let inner_thread = workers::spawn_inner(me.clone());
-    let heartbeat_thread = workers::spawn_hearbeat(me.clone(), heartbeat_kill_sw);
+    let server_thread = threads::spawn_server(me.clone(), kill_rx);
+    let inner_thread = threads::spawn_inner(me.clone());
+    let heartbeat_thread = threads::spawn_hearbeat(me.clone(), heartbeat_kill_sw);
 
     if let Err(_) = inner_thread.join() {
         error!("Inner thread panicked, triggering server shutdown");
