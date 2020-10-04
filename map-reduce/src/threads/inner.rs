@@ -105,8 +105,6 @@ pub fn spawn_inner(state: MachineState) -> JoinHandle<()> {
                             kind: system::MachineKind::Master,
                             status: system::Status::Online,
                             last_heartbeat_ns: 0,
-                            error: None,
-                            reason: None,
                         }
                     );
                 }
