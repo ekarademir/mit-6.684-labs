@@ -34,8 +34,6 @@ pub struct NetworkNeighbor {
     pub kind: MachineKind,
     pub status: Status,
     pub last_heartbeat_ns: u128,
-    pub error: Option<CommunicationError>,
-    pub reason: Option<String>,
 }
 
 impl Clone for NetworkNeighbor {
@@ -45,8 +43,6 @@ impl Clone for NetworkNeighbor {
             kind: self.kind.clone(),
             status: self.status.clone(),
             last_heartbeat_ns: self.last_heartbeat_ns.clone(),
-            error: None,
-            reason: None,
         }
     }
 }
@@ -187,8 +183,6 @@ pub async fn heartbeat(req: Request<Body>, state: MachineState) -> String {
                             last_heartbeat_ns: Instant::now()
                                 .duration_since(boot_instant)
                                 .as_nanos(),
-                            error: None,
-                            reason: None,
                         };
                         match workers.try_lock() {
                             Ok(mut workers) => {
