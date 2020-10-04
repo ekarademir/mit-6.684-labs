@@ -19,6 +19,7 @@ const DEFAULT_SOCKET: &str = "0.0.0.0:3000";
 
 type MachineState = Arc<Mutex<Machine>>;
 type Workers = Arc<Mutex<HashMap<hyper::Uri, system::NetworkNeighbor>>>;
+type HeartbeatKillSwitch = Arc<Mutex<oneshot::Receiver<()>>>;
 
 pub trait HostPort {
     fn host_port(&self) -> String;
@@ -48,7 +49,7 @@ pub struct Machine {
     socket: SocketAddr,
     boot_instant: Instant,
     master: Option<system::NetworkNeighbor>,
-    workers: Option<Workers>,
+    workers: Workers,
     master_uri: Option<Uri>,
 }
 
@@ -85,13 +86,19 @@ impl Machine {
             None
         };
 
+        let workers = Arc::new(
+            Mutex::new(
+                HashMap::new()
+            )
+        );
+
         Machine {
             kind,
             status: system::Status::NotReady,
             socket,
             boot_instant: Instant::now(),
             master: None,
-            workers: None,
+            workers,
             master_uri,
         }
     }
@@ -111,18 +118,25 @@ fn main() {
 
     // Kill trigger to server to shutdown gracefully.
     let (kill_tx, kill_rx) = oneshot::channel::<()>();
+    // Kill trigger to heartbeat loop to shutdown gracefully.
     let (stop_hb_tx, stop_hb_rx) = oneshot::channel::<()>();
+
+    let heartbeat_kill_sw: HeartbeatKillSwitch = Arc::new(
+        Mutex::new(
+            stop_hb_rx
+        )
+    );
 
     let server_thread = workers::spawn_server(me.clone(), kill_rx);
     let inner_thread = workers::spawn_inner(me.clone());
-    let heartbeat_thread = workers::spawn_hearbeat(me.clone(), stop_hb_rx);
+    let heartbeat_thread = workers::spawn_hearbeat(me.clone(), heartbeat_kill_sw);
 
     if let Err(_) = inner_thread.join() {
         error!("Inner thread panicked, triggering server shutdown");
         kill_tx.send(()).unwrap();
     };
     server_thread.join().unwrap();
-    // Stop the heartbeat sending loop
+    // Stop the heartbeat loop then wait for thread join.
     stop_hb_tx.send(()).unwrap();
     heartbeat_thread.join().unwrap();
 }

@@ -54,19 +54,28 @@ impl Clone for NetworkNeighbor {
 impl NetworkNeighbor {
     pub async fn send_heartbeat(&self, kind: MachineKind, status: Status) {
         let client = Client::new();
-        let uri:Uri = self.addr.parse().unwrap();
-        let hb = Heartbeat {
-            kind,
-            status
-        };
-        let req = Request::post(uri)
-            .header(header::CONTENT_TYPE, "application/json")
-            .body(serde_json::to_string(&hb).unwrap().into())
-            .unwrap();
-
-        let hb = client.request(req).await.unwrap();
         // TODO: decide what to do with the response
-        debug!("Received HB response {:?}", hb);
+        /*
+        If can't connect to worker and worker has not been responding for a WHILE (to be determined)
+            then drop the worker from list
+            - If I am the worker panic and fail/ drop master stop working
+        If parsing error, then drop worker immediately
+            - If I am worker .......
+        */
+        if let Ok(uri) = self.addr.parse::<Uri>() {
+            let hb = Heartbeat {
+                kind,
+                status
+            };
+            let req = Request::post(uri)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(serde_json::to_string(&hb).unwrap().into())
+                .unwrap();
+
+            if let Ok(hb) = client.request(req).await {
+                debug!("Received HB response {:?}", hb);
+            }
+        }
     }
 }
 
@@ -106,6 +115,12 @@ impl ErrorResponse {
         };
         serde_json::to_string(&resp).unwrap()
     }
+    pub fn request_problem(e: String) -> String {
+        let resp = ErrorResponse {
+            error: Some(format!("Problem with request. {}", e)),
+        };
+        serde_json::to_string(&resp).unwrap()
+    }
 }
 
 // API endpoint functions
@@ -132,35 +147,45 @@ pub async fn health(state: MachineState) -> String {
 pub async fn heartbeat(req: Request<Body>, state: MachineState) -> String {
     debug!("/heartbeat()");
     let uri = req.uri().clone();
-    let body = hyper::body::aggregate(req).await.unwrap();
-    let heartbeat:Heartbeat = serde_json::from_reader(body.reader()).unwrap();
-    /*
-    TODO
-    Gives worker1_1  | [2020-10-03T16:32:53Z DEBUG map_reduce::api::system] Received HB response Response { status: 404, version: HTTP/1.1, headers: {"content-type": "application/json", "content-length": "26", "date": "Sat, 03 Oct 2020 16:32:53 GMT"}, body: Body(Streaming) }
-    */
-    let status = {
-        let machine_state = state.lock().unwrap();
-        if let Some(workers_ref) = machine_state.workers.clone() {
-            let addr = uri.to_string();
-            info!("Heartbeat received from a {:?} at {}", heartbeat.kind, addr);
-            workers_ref.lock().unwrap().insert(uri,
-                NetworkNeighbor {
-                    addr,
-                    status: heartbeat.status,
-                    kind: heartbeat.kind,
-                    last_heartbeat_ns: 0,
-                    error: None,
-                    reason: None,
-                }
-            );
-        }
+    match hyper::body::aggregate(req).await {
+        Ok(body) => {
+            match serde_json::from_reader::<_, Heartbeat>(body.reader()) {
+                Ok(heartbeat) => {
+                    let addr = uri.to_string();
+                    info!("Heartbeat received from a {:?} at {}", heartbeat.kind, addr);
+                    let status = {
+                        let machine_state = state.lock().unwrap();
+                        if machine_state.kind == MachineKind::Master {
+                            machine_state.workers.lock().unwrap().insert(uri,
+                                NetworkNeighbor {
+                                    addr,
+                                    status: heartbeat.status,
+                                    kind: heartbeat.kind,
+                                    last_heartbeat_ns: Instant::now()
+                                        .duration_since(machine_state.boot_instant)
+                                        .as_nanos(),
+                                    error: None,
+                                    reason: None,
+                                }
+                            );
+                        }
 
-        machine_state.status.clone()
-    };
-    let resp = HeartbeatResponse {
-        status
-    };
-    serde_json::to_string(&resp).unwrap()
+                        machine_state.status.clone()
+                    };
+                    let resp = HeartbeatResponse {
+                        status
+                    };
+                    serde_json::to_string(&resp).unwrap()
+                },
+                Err(e) => {
+                    ErrorResponse::request_problem(e.to_string())
+                }
+            }
+        },
+        Err(e) => {
+            ErrorResponse::request_problem(e.to_string())
+        }
+    }
 }
 
 pub async fn about(state: MachineState) -> String {
@@ -174,11 +199,9 @@ pub async fn about(state: MachineState) -> String {
         if let Some(master) = &machine_state.master {
             network.push(master.clone())
         }
-        if let Some(workers) = &machine_state.workers {
-            workers.lock().unwrap().values().for_each(|worker| {
-                network.push(worker.clone());
-            });
-        }
+        machine_state.workers.lock().unwrap().values().for_each(|worker| {
+            network.push(worker.clone());
+        });
         (
             machine_state.kind.clone(),
             network,
