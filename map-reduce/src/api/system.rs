@@ -1,10 +1,11 @@
 use std::time::Instant;
 
 use bytes::buf::BufExt as _;
-use hyper::{Body, Request, Uri};
+use hyper::{Body, Request};
 use serde::{Deserialize, Serialize};
 use serde_json;
-use log::{debug, info};
+use log::{debug, info, error};
+use tokio::sync::mpsc;
 
 use crate::MachineState;
 
@@ -71,7 +72,11 @@ pub async fn health(state: MachineState) -> String {
     serde_json::to_string(&health_response).unwrap()
 }
 
-pub async fn heartbeat(req: Request<Body>, state: MachineState) -> String {
+pub async fn heartbeat(
+    req: Request<Body>,
+    state: MachineState,
+    mut heartbeat_sender: mpsc::Sender<NetworkNeighbor>
+) -> String {
     debug!("/heartbeat()");
     match hyper::body::aggregate(req).await {
         Ok(body) => {
@@ -82,18 +87,15 @@ pub async fn heartbeat(req: Request<Body>, state: MachineState) -> String {
                         my_status,
                         my_kind,
                         boot_instant,
-                        workers,
                     ) = {
                         let machine_state = state.lock().unwrap();
                         (
                             machine_state.status.clone(),
                             machine_state.kind.clone(),
                             machine_state.boot_instant.clone(),
-                            machine_state.workers.clone(),
                         )
                     };
                     if my_kind == MachineKind::Master {
-                        let uri = heartbeat.host.parse::<Uri>().unwrap();
                         let worker = NetworkNeighbor {
                             addr: heartbeat.host,
                             status: heartbeat.status,
@@ -102,16 +104,9 @@ pub async fn heartbeat(req: Request<Body>, state: MachineState) -> String {
                                 .duration_since(boot_instant)
                                 .as_nanos(),
                         };
-                        match workers.try_lock() {
-                            Ok(mut workers) => {
-                                debug!("Inserting/updating new worker {}", uri);
-                                workers.replace(worker);
-                            },
-                            Err(e) =>  {
-                                debug!("Couldn't acquire write lock to workers. {:?}", e);
-                            }
+                        if let Err(e) = heartbeat_sender.send(worker).await {
+                            error!("Error sending the heartbeat to the heartbeat thread: {}", e);
                         }
-                        // TODO Add worker register thread / piggyback on hb
                     }
                     let hb = HeartbeatResponse {
                         status: my_status

@@ -5,12 +5,13 @@ use hyper::Server;
 use tokio::signal;
 use tokio::runtime::Runtime;
 use tokio::select;
-use tokio::sync::oneshot::Receiver;
+use tokio::sync::{mpsc, oneshot};
 
 use crate::api;
+use crate::system;
 use crate::MachineState;
 
-pub fn spawn_server(state: MachineState, kill_rx: Receiver<()>) -> JoinHandle<()> {
+pub fn spawn_server(state: MachineState, heartbeat_sender: mpsc::Sender<system::NetworkNeighbor>, kill_rx: oneshot::Receiver<()>) -> JoinHandle<()> {
     let main_state = state.clone();
     thread::Builder::new().name("Server".into()).spawn(|| {
         let mut rt = Runtime::new().unwrap();
@@ -27,7 +28,8 @@ pub fn spawn_server(state: MachineState, kill_rx: Receiver<()>) -> JoinHandle<()
             if let Ok(server) = bound_server {
                 let server = server
                     .serve(api::MakeMainService {
-                        state: main_state
+                        state: main_state,
+                        heartbeat_sender,
                     })
                     .with_graceful_shutdown(async {
                         select! {

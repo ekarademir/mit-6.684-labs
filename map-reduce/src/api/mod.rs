@@ -6,11 +6,10 @@ use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use log::{debug};
 use hyper::{Body, Method, Request, Response, StatusCode};
 use hyper::header;
 use hyper::service::Service;
-use hyper::server::conn;
+use tokio::sync::mpsc;
 
 use crate::MachineState;
 
@@ -29,6 +28,7 @@ fn json_response(json: String, status: Option<StatusCode>) -> Response<Body> {
 
 pub struct MainService {
     state: MachineState,
+    heartbeat_sender: mpsc::Sender<system::NetworkNeighbor>,
 }
 
 impl Service<Request<Body>> for MainService {
@@ -49,6 +49,7 @@ impl Service<Request<Body>> for MainService {
             )
         }
         let state = self.state.clone();
+        let heartbeat_sender = self.heartbeat_sender.clone();
         Box::pin(async move {
             let result = match (req.method(), req.uri().path()) {
                 (&Method::GET, endpoints::HEALTH) => make_result(
@@ -60,7 +61,7 @@ impl Service<Request<Body>> for MainService {
                     Some(StatusCode::OK)
                 ),
                 (&Method::POST, endpoints::HEARTBEAT) => make_result(
-                    system::heartbeat(req, state).await,
+                    system::heartbeat(req, state, heartbeat_sender).await,
                     Some(StatusCode::OK)
                 ),
                 (_, the_path) => make_result(
@@ -75,6 +76,7 @@ impl Service<Request<Body>> for MainService {
 
 pub struct MakeMainService {
     pub state: MachineState,
+    pub heartbeat_sender: mpsc::Sender<system::NetworkNeighbor>,
 }
 
 impl<T> Service<T> for MakeMainService {
@@ -87,9 +89,9 @@ impl<T> Service<T> for MakeMainService {
     }
 
     fn call(&mut self, _: T) -> Self::Future {
-        let state = self.state.clone();
         let main_svc = MainService {
-            state,
+            state: self.state.clone(),
+            heartbeat_sender: self.heartbeat_sender.clone(),
         };
         let fut = async move { Ok(main_svc) };
         Box::pin(fut)

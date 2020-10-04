@@ -134,7 +134,7 @@ fn main() {
     // Kill trigger to heartbeat loop to shutdown gracefully.
     let (stop_hb_tx, stop_hb_rx) = oneshot::channel::<()>();
     // Heartbeat funnel
-    let (heartbeat_tx, mut heartbeat_rx) = mpsc::channel::<system::NetworkNeighbor>(100);
+    let (heartbeat_tx, heartbeat_rx) = mpsc::channel::<system::NetworkNeighbor>(100);
 
     let heartbeat_kill_sw: HeartbeatKillSwitch = Arc::new(
         Mutex::new(
@@ -142,12 +142,12 @@ fn main() {
         )
     );
 
-    let server_thread = threads::spawn_server(me.clone(), kill_rx);
+    let server_thread = threads::spawn_server(me.clone(), heartbeat_tx, kill_rx);
     let inner_thread = threads::spawn_inner(me.clone());
-    let heartbeat_thread = threads::spawn_hearbeat(me.clone(), heartbeat_kill_sw);
+    let heartbeat_thread = threads::spawn_hearbeat(me.clone(), heartbeat_rx, heartbeat_kill_sw);
 
     if let Err(_) = inner_thread.join() {
-        error!("Inner thread panicked, triggering server shutdown");
+        error!("Inner thread panicked, shutting down other threads.");
         kill_tx.send(()).unwrap();
     };
     server_thread.join().unwrap();
