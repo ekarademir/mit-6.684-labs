@@ -85,7 +85,6 @@ impl<T> Service<T> for MakeMainService {
     }
 
     fn call(&mut self, _: T) -> Self::Future {
-        debug!("Making main service");
         let state = self.state.clone();
         let main_svc = MainService {
             state,

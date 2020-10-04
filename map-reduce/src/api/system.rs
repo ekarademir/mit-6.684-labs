@@ -7,7 +7,7 @@ use serde_json;
 use log::{debug, info};
 
 use crate::errors::CommunicationError;
-use crate::MachineState;
+use crate::{MachineState, HostPort};
 use super::endpoints;
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -67,9 +67,17 @@ impl NetworkNeighbor {
                 kind,
                 status
             };
+            let req_body = Body::from(serde_json::to_string(&hb).unwrap());
+
+            let uri = format!("http://{}{}",
+                uri.host_port(),
+                endpoints::HEARTBEAT
+            ).parse::<Uri>().unwrap();
+
+            debug!("Sending request to {:?}", uri);
             let req = Request::post(uri)
                 .header(header::CONTENT_TYPE, "application/json")
-                .body(serde_json::to_string(&hb).unwrap().into())
+                .body(req_body)
                 .unwrap();
 
             if let Ok(hb) = client.request(req).await {
@@ -146,36 +154,59 @@ pub async fn health(state: MachineState) -> String {
 
 pub async fn heartbeat(req: Request<Body>, state: MachineState) -> String {
     debug!("/heartbeat()");
-    let uri = req.uri().clone();
+    // let uri = req.uri().clone();
+    // TODO correctly get URL of requester
+    let uri = req.headers().clone();
     match hyper::body::aggregate(req).await {
         Ok(body) => {
             match serde_json::from_reader::<_, Heartbeat>(body.reader()) {
                 Ok(heartbeat) => {
-                    let addr = uri.to_string();
+                    let uri = uri.get("host").unwrap();
+                    let addr = format!("{}", uri.to_str().unwrap());
                     info!("Heartbeat received from a {:?} at {}", heartbeat.kind, addr);
-                    let status = {
+                    let (
+                        my_status,
+                        my_kind,
+                        boot_instant,
+                        workers,
+                    ) = {
                         let machine_state = state.lock().unwrap();
-                        if machine_state.kind == MachineKind::Master {
-                            machine_state.workers.lock().unwrap().insert(uri,
-                                NetworkNeighbor {
-                                    addr,
-                                    status: heartbeat.status,
-                                    kind: heartbeat.kind,
-                                    last_heartbeat_ns: Instant::now()
-                                        .duration_since(machine_state.boot_instant)
-                                        .as_nanos(),
-                                    error: None,
-                                    reason: None,
-                                }
-                            );
+                        (
+                            machine_state.status.clone(),
+                            machine_state.kind.clone(),
+                            machine_state.boot_instant.clone(),
+                            machine_state.workers.clone(),
+                        )
+                    };
+                    if my_kind == MachineKind::Master {
+                        let uri = addr.parse::<Uri>().unwrap();
+                        let worker = NetworkNeighbor {
+                            addr,
+                            status: heartbeat.status,
+                            kind: heartbeat.kind,
+                            last_heartbeat_ns: Instant::now()
+                                .duration_since(boot_instant)
+                                .as_nanos(),
+                            error: None,
+                            reason: None,
+                        };
+                        match workers.try_lock() {
+                            Ok(mut workers) => {
+                                debug!("Inserting/updating new worker {}", uri);
+                                workers.insert(uri, worker);
+                            },
+                            Err(e) =>  {
+                                debug!("Couldn't acquire write lock to workers. {:?}", e);
+                            }
                         }
-
-                        machine_state.status.clone()
+                        // TODO Add worker register thread / piggyback on hb
+                    }
+                    let hb = HeartbeatResponse {
+                        status: my_status
                     };
-                    let resp = HeartbeatResponse {
-                        status
-                    };
-                    serde_json::to_string(&resp).unwrap()
+                    let resp = serde_json::to_string(&hb).unwrap();
+                    debug!("Sending HB respose {}", resp);
+                    resp
                 },
                 Err(e) => {
                     ErrorResponse::request_problem(e.to_string())
@@ -213,84 +244,4 @@ pub async fn about(state: MachineState) -> String {
     };
 
     serde_json::to_string(&about_response).unwrap()
-}
-
-// POSSIBLE DEAD CODE
-// TODO: Maybe remove this
-#[allow(dead_code)]
-async fn neighbor_status(url: &String, machine_state: MachineState) -> NetworkNeighbor {
-    let parsed_uri = format!("{}{}", url, endpoints::HEALTH).parse::<Uri>();
-
-    match parsed_uri {
-        Ok(uri) => {
-            debug!("Contacting {:?}", uri);
-            let client = Client::new();
-            let maybe_contents = client.get(uri).await
-                .map(|response| {
-                    hyper::body::to_bytes(response.into_body())
-                });
-
-            match maybe_contents {
-                Ok(content_future) => {
-                    match content_future.await {
-                        Ok(content) => {
-                            let mut de = serde_json::Deserializer::from_reader(content.reader());
-                            let neighbor_health = HealthResponse::deserialize(&mut de);
-
-                            match neighbor_health {
-                                Ok(health) => {
-                                    let last_heartbeat_ns = {
-                                        let state = machine_state.lock().unwrap();
-                                        Instant::now().duration_since(state.boot_instant).as_nanos()
-                                    };
-                                    NetworkNeighbor {
-                                        addr: url.clone(),
-                                        kind: health.kind,
-                                        status: health.status,
-                                        last_heartbeat_ns,
-                                        error: None,
-                                        reason: None,
-                                    }
-                                },
-                                Err(e) => {
-                                    NetworkNeighbor {
-                                        addr: url.clone(),
-                                        kind: MachineKind::Unknown,
-                                        status: Status::Error,
-                                        last_heartbeat_ns: 0,
-                                        error: Some(CommunicationError::CantDeserializeResponse),
-                                        reason: Some(format!("{:?}", e))
-                                    }
-                                }
-                            }
-                        },
-                        Err(e) => NetworkNeighbor {
-                            addr: url.clone(),
-                            kind: MachineKind::Unknown,
-                            status: Status::Error,
-                            last_heartbeat_ns: 0,
-                            error: Some(CommunicationError::CantCreateResponseBytes),
-                            reason: Some(format!("{:?}", e))
-                        }
-                    }
-                },
-                Err(e) => NetworkNeighbor {
-                    addr: url.clone(),
-                    kind: MachineKind::Unknown,
-                    status: Status::Error,
-                    last_heartbeat_ns: 0,
-                    error: Some(CommunicationError::CantBufferContents),
-                    reason: Some(format!("{:?}", e))
-                }
-            }
-        },
-        Err(e) => NetworkNeighbor {
-            addr: url.clone(),
-            kind: MachineKind::Unknown,
-            status: Status::Error,
-            last_heartbeat_ns: 0,
-            error: Some(CommunicationError::CantParseUrl),
-            reason: Some(format!("{:?}", e))
-        }
-    }
 }

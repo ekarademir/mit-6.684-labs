@@ -24,27 +24,26 @@ async fn send_heartbeats(
         }
         debug!("Starting heartbeats from {:?}", kind);
         if kind == system::MachineKind::Master {
-            let (
-                workers_ref,
-                status,
-            ) = {
-                let my_state = state.lock().unwrap();
-                (
-                    my_state.workers.clone(),
-                    my_state.status.clone(),
-                )
-            };
-            let workers = workers_ref.lock().unwrap();
-            if workers.is_empty() {
-                warn!("No workers have been registered yet. Sleeping.");
-            } else {
-                info!("Sending heartbeat to workers");
-                for worker in workers.values() {
-                    // TODO: Make this concurrent
-                    worker.send_heartbeat(kind, status).await;
-                }
-            }
-            thread::sleep(wait_duration);
+            // let (
+            //     workers_ref,
+            //     status,
+            // ) = {
+            //     let my_state = state.lock().unwrap();
+            //     (
+            //         my_state.workers.clone(),
+            //         my_state.status.clone(),
+            //     )
+            // };
+            // let workers = workers_ref.lock().unwrap();
+            // if workers.is_empty() {
+            //     warn!("No workers have been registered yet. Sleeping.");
+            // } else {
+            //     info!("Sending heartbeat to workers");
+            //     for worker in workers.values() {
+            //         // TODO: Make this concurrent
+            //         worker.send_heartbeat(kind, status).await;
+            //     }
+            // }
         } else if kind == system::MachineKind::Worker {
             let (
                 maybe_master,
@@ -62,8 +61,8 @@ async fn send_heartbeats(
             } else {
                 warn!("No master is defined yet. Sleeping.");
             }
-            thread::sleep(wait_duration);
         }
+        thread::sleep(wait_duration);
     }
 }
 
@@ -76,3 +75,5 @@ pub fn spawn_hearbeat(state: MachineState, kill_rx: HeartbeatKillSwitch) -> Join
         });
     }).unwrap()
 }
+
+// TODO See if hb channel register
