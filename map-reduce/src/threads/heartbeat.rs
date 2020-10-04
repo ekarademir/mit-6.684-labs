@@ -41,15 +41,28 @@ async fn send_heartbeats(
             break;
         }
 
-        if let Ok(worker) = heartbeat_receiver.try_recv() {
-            match workers.try_lock() {
-                Ok(mut workers) => {
-                    debug!("Inserting/updating new worker {}", worker.addr);
-                    workers.replace(worker);
-                },
-                Err(e) =>  {
-                    debug!("Couldn't acquire write lock to workers. {:?}", e);
+        if let Ok(neighbor) = heartbeat_receiver.try_recv() {
+            if neighbor.kind == system::MachineKind::Worker {
+                match workers.try_lock() {
+                    Ok(mut workers) => {
+                        debug!("Inserting/updating new worker {}", neighbor.addr);
+                        workers.replace(neighbor);
+                    },
+                    Err(e) =>  {
+                        debug!("Couldn't acquire write lock to workers. {:?}", e);
+                    }
                 }
+            } else if neighbor.kind == system::MachineKind::Master {
+                match state.try_lock() {
+                    Ok(mut state) => {
+                        debug!("Updating master {}", neighbor.addr);
+                        state.master = Some(neighbor);
+                    },
+                    Err(e) =>  {
+                        debug!("Couldn't acquire write lock to state. {:?}", e);
+                    }
+                }
+
             }
         }
 

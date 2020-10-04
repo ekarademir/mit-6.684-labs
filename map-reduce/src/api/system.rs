@@ -85,34 +85,33 @@ pub async fn heartbeat(
                     info!("Heartbeat received from a {:?} at {}", heartbeat.kind, heartbeat.host);
                     let (
                         my_status,
-                        my_kind,
                         boot_instant,
                     ) = {
                         let machine_state = state.lock().unwrap();
                         (
                             machine_state.status.clone(),
-                            machine_state.kind.clone(),
                             machine_state.boot_instant.clone(),
                         )
                     };
-                    if my_kind == MachineKind::Master {
-                        let worker = NetworkNeighbor {
-                            addr: heartbeat.host,
-                            status: heartbeat.status,
-                            kind: heartbeat.kind,
-                            last_heartbeat_ns: Instant::now()
-                                .duration_since(boot_instant)
-                                .as_nanos(),
-                        };
-                        if let Err(e) = heartbeat_sender.send(worker).await {
-                            error!("Error sending the heartbeat to the heartbeat thread: {}", e);
-                        }
+
+                    let neighbor = NetworkNeighbor {
+                        addr: heartbeat.host,
+                        status: heartbeat.status,
+                        kind: heartbeat.kind,
+                        last_heartbeat_ns: Instant::now()
+                            .duration_since(boot_instant)
+                            .as_nanos(),
+                    };
+                    if let Err(e) = heartbeat_sender.send(neighbor).await {
+                        error!("Error sending the heartbeat to the heartbeat thread: {}", e);
                     }
+
                     let hb = HeartbeatResponse {
                         status: my_status
                     };
+
                     let resp = serde_json::to_string(&hb).unwrap();
-                    debug!("Sending HB respose {}", resp);
+                    debug!("Sending heartbeat response {}", resp);
                     resp
                 },
                 Err(e) => {
