@@ -151,3 +151,5 @@ pub async fn about(state: MachineState) -> String {
 
     serde_json::to_string(&about_response).unwrap()
 }
+
+// TODO Add tests for endpoints

@@ -170,3 +170,5 @@ master node yeterince worker oldukca is yatirmaya devam eder
 
 */
 // TODO (Optional) Make it workable via https
+
+// TODO add test for master, receiving heartbeat from worker
