@@ -106,12 +106,15 @@ impl Hash for NetworkNeighbor {
 mod tests {
     #[tokio::test]
     async fn test_sending_heartbeat() {
+        // Uncomment for debugging
+        // let _ = env_logger::try_init();
+
         use httptest::{Server, Expectation, matchers::*, responders::*};
+
         use crate::api::{endpoints, system};
         use crate::api::network_neighbor::NetworkNeighbor;
 
         // Setup server to act as a Master
-        let _ = env_logger::try_init();
         let server = Server::run();
         server.expect(
             Expectation::matching(all_of![
