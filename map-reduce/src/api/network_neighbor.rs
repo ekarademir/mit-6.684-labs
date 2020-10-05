@@ -101,3 +101,41 @@ impl Hash for NetworkNeighbor {
         self.addr.hash(state);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #[tokio::test]
+    async fn test_sending_heartbeat() {
+        use httptest::{Server, Expectation, matchers::*, responders::*};
+        use crate::api::{endpoints, system};
+        use crate::api::network_neighbor::NetworkNeighbor;
+
+        // Setup server to act as a Master
+        let _ = env_logger::try_init();
+        let server = Server::run();
+        server.expect(
+            Expectation::matching(all_of![
+                request::method_path("POST", endpoints::HEARTBEAT),
+                request::body(json_decoded(eq(serde_json::json!(
+                    {
+                        "kind": "Worker",
+                        "status": "NotReady",
+                        "host": "http://test.com"
+                    }
+                ))))
+            ]).respond_with(status_code(200)),
+        );
+        let url = server.url("/");
+        // Create master NetworkNeighbor
+        let test_neighbor = NetworkNeighbor {
+            addr: url.to_string(),
+            kind: system::MachineKind::Master,
+            status: system::Status::NotReady,
+            last_heartbeat_ns: 0
+        };
+        // Run test
+        test_neighbor.send_heartbeat(
+            "http://test.com".to_string(), system::MachineKind::Worker, system::Status::NotReady
+        ).await;
+    }
+}
