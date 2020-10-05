@@ -187,4 +187,85 @@ mod tests {
         // Run test
         super::send_heartbeats(machine_state, heartbeat_rx, heartbeat_kill_sw).await;
     }
+
+    #[tokio::test]
+    async fn test_heartbeats_from_master() {
+        // Uncomment for debugging
+        // let _ = env_logger::try_init();
+
+        use std::collections::HashSet;
+        use std::net::SocketAddr;
+        use std::sync::{Arc, Mutex};
+        use std::time::{Duration, Instant};
+
+        use httptest::{Server, Expectation, matchers::*, responders::*};
+        use tokio::sync::{mpsc, oneshot};
+        use tokio::time::delay_for;
+
+        use crate::api::{endpoints, system};
+        use crate::api::network_neighbor::NetworkNeighbor;
+        use crate::Machine;
+
+        // Setup server to act as a Master
+        let server = Server::run();
+        server.expect(
+            Expectation::matching(all_of![
+                request::method_path("POST", endpoints::HEARTBEAT),
+                request::body(json_decoded(eq(serde_json::json!(
+                    {
+                        "kind": "Master",
+                        "status": "NotReady",
+                        "host": "http://test.com"
+                    }
+                ))))
+            ])
+            .times(1..)
+            .respond_with(status_code(200)),
+        );
+        let url = server.url("/");
+        // form Machine state
+        let worker = NetworkNeighbor {
+            addr: url.to_string(),
+            kind: system::MachineKind::Worker,
+            status: system::Status::NotReady,
+            last_heartbeat_ns: 0
+        };
+        let mut workers_set = HashSet::new();
+        workers_set.replace(worker);
+        let workers = Arc::new(
+            Mutex::new(
+                workers_set
+            )
+        );
+        let machine_state = Arc::new(
+            Mutex::new(
+                Machine {
+                    kind: system::MachineKind::Master,
+                    status: system::Status::NotReady,
+                    socket: "0.0.0.0:3000".parse::<SocketAddr>().unwrap(),
+                    host: "http://test.com".to_string(),
+                    boot_instant: Instant::now(),
+                    master: None,
+                    workers,
+                    master_uri: Some(url)
+                }
+            )
+        );
+        // Create channels
+        let (stop_hb_tx, stop_hb_rx) = oneshot::channel::<()>();
+        let (_heartbeat_tx, heartbeat_rx) = mpsc::channel::<system::NetworkNeighbor>(100);
+        let heartbeat_kill_sw = Arc::new(
+            Mutex::new(
+                stop_hb_rx
+            )
+        );
+
+        // Setup timer for kill switch to end heartbeat loop
+        tokio::spawn(async move {
+            delay_for(Duration::from_secs(1)).await;
+            stop_hb_tx.send(()).unwrap();
+        });
+        // Run test
+        super::send_heartbeats(machine_state, heartbeat_rx, heartbeat_kill_sw).await;
+    }
 }
