@@ -144,7 +144,7 @@ fn main() {
 
     let server_thread = threads::spawn_server(me.clone(), heartbeat_tx, kill_rx);
     let inner_thread = threads::spawn_inner(me.clone());
-    let heartbeat_thread = threads::spawn_hearbeat(me.clone(), heartbeat_rx, heartbeat_kill_sw);
+    let heartbeat_thread = threads::spawn_heartbeat(me.clone(), heartbeat_rx, heartbeat_kill_sw);
 
     if let Err(_) = inner_thread.join() {
         error!("Inner thread panicked, shutting down other threads.");

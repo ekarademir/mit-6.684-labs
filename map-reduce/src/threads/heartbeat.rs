@@ -91,10 +91,18 @@ async fn send_heartbeats(
             }
         }
         thread::sleep(wait_duration);
+        // TODO: decide what to do with the response
+        /*
+        If can't connect to worker and worker has not been responding for a WHILE (to be determined)
+            then drop the worker from list
+            - If I am the worker panic and fail/ drop master stop working
+        If parsing error, then drop worker immediately
+            - If I am worker .......
+        */
     }
 }
 
-pub fn spawn_hearbeat(
+pub fn spawn_heartbeat(
     state: MachineState,
     heartbeat_receiver: mpsc::Receiver<system::NetworkNeighbor>,
     kill_rx: HeartbeatKillSwitch

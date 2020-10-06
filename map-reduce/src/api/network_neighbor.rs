@@ -54,14 +54,6 @@ impl Clone for NetworkNeighbor {
 impl NetworkNeighbor {
     pub async fn send_heartbeat(&self, host: String, kind: MachineKind, status: Status) {
         let client = Client::new();
-        // TODO: decide what to do with the response
-        /*
-        If can't connect to worker and worker has not been responding for a WHILE (to be determined)
-            then drop the worker from list
-            - If I am the worker panic and fail/ drop master stop working
-        If parsing error, then drop worker immediately
-            - If I am worker .......
-        */
         if let Ok(uri) = self.addr.parse::<Uri>() {
             let hb = Heartbeat {
                 kind,
@@ -82,6 +74,7 @@ impl NetworkNeighbor {
                 .unwrap();
 
             if let Ok(hb) = client.request(req).await {
+                // TODO Return the response
                 debug!("Received HB response {:?}", hb);
             }
         }
