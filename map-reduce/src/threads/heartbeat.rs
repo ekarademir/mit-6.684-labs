@@ -120,6 +120,7 @@ async fn send_heartbeats(
             }
         }
         thread::sleep(wait_duration);
+        // TODO (Optional) Implement a minimum worker threashold
     }
 }
 
