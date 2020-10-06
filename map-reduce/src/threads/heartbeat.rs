@@ -1,7 +1,7 @@
 use std::time::Duration;
 use std::thread::{self, JoinHandle};
 
-use log::{debug, info, warn};
+use log::{debug, error, info, warn};
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 
@@ -9,6 +9,7 @@ use crate::{MachineState, HeartbeatKillSwitch};
 use crate::system;
 
 const SLEEP_DURATION_SEC:u64 = 2;
+const NEIGHTBOR_DROP_THRESHOLD:u128 = 5_000_000_000; // ns
 
 
 async fn send_heartbeats(
@@ -25,6 +26,7 @@ async fn send_heartbeats(
             status,
             host,
             maybe_master,
+            boot_time,
         ) = {
             let my_state = state.lock().unwrap();
             (
@@ -33,8 +35,11 @@ async fn send_heartbeats(
                 my_state.status.clone(),
                 my_state.host.clone(),
                 my_state.master.clone(),
+                my_state.boot_instant.clone(),
             )
         };
+
+        let since_boot = boot_time.elapsed().as_nanos();
 
         if let Ok(_) = kill_rx.lock().unwrap().try_recv() {
             warn!("Kill signal received, stopping heartbeat loop");
@@ -68,14 +73,27 @@ async fn send_heartbeats(
 
         debug!("Sending heartbeats from {:?}", kind);
         if kind == system::MachineKind::Master {
-            if let Ok(workers) = workers.try_lock() {
+            if let Ok(mut workers) = workers.try_lock() {
                 if workers.is_empty() {
                     warn!("No workers have been registered yet. Sleeping.");
                 } else {
                     info!("Sending heartbeat to workers");
+                    let mut drop_workers: Vec<system::NetworkNeighbor> = Vec::new();
+                    // TODO: Make this concurrent
                     for worker in workers.iter() {
-                        // TODO: Make this concurrent
-                        worker.exchange_heartbeat(host.clone(), kind, status).await;
+                        match worker.exchange_heartbeat(host.clone(), kind, status).await {
+                            system::Status::Error
+                            | system::Status::Offline
+                            | system::Status::NotReady => {
+                                if since_boot - worker.last_heartbeat_ns > NEIGHTBOR_DROP_THRESHOLD {
+                                    drop_workers.push(worker.clone());
+                                }
+                            },
+                            _ => {}
+                        }
+                    }
+                    for dropping_worker in drop_workers.iter() {
+                        workers.remove(dropping_worker);
                     }
                 }
             } else {
@@ -85,20 +103,23 @@ async fn send_heartbeats(
         } else if kind == system::MachineKind::Worker {
             if let Some(master) = maybe_master.clone() {
                 info!("Sending heartbeat to master");
-                master.exchange_heartbeat(host.clone(), kind, status).await;
+                match master.exchange_heartbeat(host.clone(), kind, status).await {
+                    system::Status::Error
+                    | system::Status::Offline
+                    | system::Status::NotReady => {
+                        if since_boot - master.last_heartbeat_ns > NEIGHTBOR_DROP_THRESHOLD {
+                            let threshold: f32 = NEIGHTBOR_DROP_THRESHOLD as f32 / 1_000_000_000.0;
+                            error!("Master machine has not been ready for {} secs, panicking", threshold);
+                            panic!("Master machine has not been ready for {} secs", threshold);
+                        }
+                    },
+                    _ => {}
+                }
             } else {
                 warn!("No master is defined yet. Sleeping.");
             }
         }
         thread::sleep(wait_duration);
-        // TODO: decide what to do with the response
-        /*
-        If can't connect to worker and worker has not been responding for a WHILE (to be determined)
-            then drop the worker from list
-            - If I am the worker panic and fail/ drop master stop working
-        If parsing error, then drop worker immediately
-            - If I am worker .......
-        */
     }
 }
 
@@ -119,7 +140,6 @@ pub fn spawn_heartbeat(
 #[cfg(test)]
 mod tests {
     #[tokio::test]
-    #[ignore]
     async fn test_heartbeats_from_worker() {
         // Uncomment for debugging
         // let _ = env_logger::try_init();
@@ -198,7 +218,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore]
     async fn test_heartbeats_from_master() {
         // Uncomment for debugging
         // let _ = env_logger::try_init();
@@ -216,7 +235,7 @@ mod tests {
         use crate::api::network_neighbor::NetworkNeighbor;
         use crate::Machine;
 
-        // Setup server to act as a Master
+        // Setup server to act as a Worker
         let server = Server::run();
         server.expect(
             Expectation::matching(all_of![
@@ -257,7 +276,7 @@ mod tests {
                     boot_instant: Instant::now(),
                     master: None,
                     workers,
-                    master_uri: Some(url)
+                    master_uri: None
                 }
             )
         );
@@ -273,6 +292,163 @@ mod tests {
         // Setup timer for kill switch to end heartbeat loop
         tokio::spawn(async move {
             delay_for(Duration::from_secs(1)).await;
+            stop_hb_tx.send(()).unwrap();
+        });
+        // Run test
+        super::send_heartbeats(machine_state, heartbeat_rx, heartbeat_kill_sw).await;
+    }
+
+    #[tokio::test]
+    #[should_panic]
+    async fn test_heartbeats_from_worker_notready_master() {
+        // Uncomment for debugging
+        // let _ = env_logger::try_init();
+
+        use std::collections::HashSet;
+        use std::net::SocketAddr;
+        use std::sync::{Arc, Mutex};
+        use std::time::{Duration, Instant};
+
+        use httptest::{Server, Expectation, matchers::*, responders::*};
+        use tokio::sync::{mpsc, oneshot};
+        use tokio::time::delay_for;
+
+        use crate::api::{endpoints, system};
+        use crate::api::network_neighbor::NetworkNeighbor;
+        use crate::Machine;
+
+        // Setup server to act as a Master
+        let server = Server::run();
+        // Response to heartbeat from a worker
+        // will send NotReady heartbeat everytime
+        let hb_from_master = serde_json::json!(
+            {
+                "status": "NotReady"
+            }
+        );
+        server.expect(
+            Expectation::matching(all_of![
+                request::method_path("POST", endpoints::HEARTBEAT),
+                request::body(json_decoded(eq(serde_json::json!(
+                    {
+                        "kind": "Worker",
+                        "status": "Online",
+                        "host": "http://test.com"
+                    }
+                ))))
+            ])
+            .times(1..)
+            .respond_with(
+                json_encoded(hb_from_master.clone()
+            )),
+        );
+        let url = server.url("/");
+        // form Machine state
+        let boot = Instant::now();
+
+        let master = NetworkNeighbor {
+            addr: url.to_string(),
+            kind: system::MachineKind::Master,
+            status: system::Status::NotReady, // Master was not ready
+            last_heartbeat_ns: boot.elapsed().as_nanos()
+        };
+        let machine_state = Arc::new(
+            Mutex::new(
+                Machine {
+                    kind: system::MachineKind::Worker,
+                    status: system::Status::Online,
+                    socket: "0.0.0.0:3000".parse::<SocketAddr>().unwrap(),
+                    host: "http://test.com".to_string(),
+                    boot_instant: boot,
+                    master: Some(master),
+                    workers: Arc::new(
+                        Mutex::new(
+                            HashSet::new()
+                        )
+                    ),
+                    master_uri: Some(url)
+                }
+            )
+        );
+        // Create channels
+        let (stop_hb_tx, stop_hb_rx) = oneshot::channel::<()>();
+        let (_heartbeat_tx, heartbeat_rx) = mpsc::channel::<system::NetworkNeighbor>(100);
+        let heartbeat_kill_sw = Arc::new(
+            Mutex::new(
+                stop_hb_rx
+            )
+        );
+
+        // Setup timer for kill switch to end heartbeat loop
+        // It should panic before this is triggered
+        tokio::spawn(async move {
+            delay_for(Duration::from_secs(6)).await;
+            stop_hb_tx.send(()).unwrap();
+        });
+        // Run test
+        super::send_heartbeats(machine_state, heartbeat_rx, heartbeat_kill_sw).await;
+    }
+
+    #[tokio::test]
+    #[should_panic]
+    async fn test_heartbeats_from_worker_offline_master() {
+        // Uncomment for debugging
+        // let _ = env_logger::try_init();
+
+        use std::collections::HashSet;
+        use std::net::SocketAddr;
+        use std::sync::{Arc, Mutex};
+        use std::time::{Duration, Instant};
+
+        use tokio::sync::{mpsc, oneshot};
+        use tokio::time::delay_for;
+        use hyper::Uri;
+
+        use crate::api::system;
+        use crate::api::network_neighbor::NetworkNeighbor;
+        use crate::Machine;
+
+        // form Machine state
+        let boot = Instant::now();
+        let master_url = "http://example.local";
+        let master_uri = "http://example.local".parse::<Uri>().unwrap();
+        let master = NetworkNeighbor {
+            addr: master_url.to_string(),
+            kind: system::MachineKind::Master,
+            status: system::Status::NotReady, // Master was not ready
+            last_heartbeat_ns: boot.elapsed().as_nanos()
+        };
+        let machine_state = Arc::new(
+            Mutex::new(
+                Machine {
+                    kind: system::MachineKind::Worker,
+                    status: system::Status::Online,
+                    socket: "0.0.0.0:3000".parse::<SocketAddr>().unwrap(),
+                    host: "http://test.com".to_string(),
+                    boot_instant: boot,
+                    master: Some(master),
+                    workers: Arc::new(
+                        Mutex::new(
+                            HashSet::new()
+                        )
+                    ),
+                    master_uri: Some(master_uri)
+                }
+            )
+        );
+        // Create channels
+        let (stop_hb_tx, stop_hb_rx) = oneshot::channel::<()>();
+        let (_heartbeat_tx, heartbeat_rx) = mpsc::channel::<system::NetworkNeighbor>(100);
+        let heartbeat_kill_sw = Arc::new(
+            Mutex::new(
+                stop_hb_rx
+            )
+        );
+
+        // Setup timer for kill switch to end heartbeat loop
+        // It should panic before this is triggered
+        tokio::spawn(async move {
+            delay_for(Duration::from_secs(7)).await;
             stop_hb_tx.send(()).unwrap();
         });
         // Run test
