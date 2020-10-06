@@ -26,9 +26,9 @@ pub struct AboutResponse {
     network: Vec<NetworkNeighbor>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct HeartbeatResponse {
-    status: Status,
+    pub status: Status,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -86,11 +86,15 @@ pub async fn heartbeat(
                     let (
                         my_status,
                         boot_instant,
+                        my_kind,
+                        my_host,
                     ) = {
                         let machine_state = state.lock().unwrap();
                         (
                             machine_state.status.clone(),
                             machine_state.boot_instant.clone(),
+                            machine_state.kind.clone(),
+                            machine_state.host.clone(),
                         )
                     };
 
@@ -106,8 +110,13 @@ pub async fn heartbeat(
                         error!("Error sending the heartbeat to the heartbeat thread: {}", e);
                     }
 
-                    let hb = HeartbeatResponse {
-                        status: my_status
+                    // let hb = HeartbeatResponse {
+                    //     status: my_status
+                    // };
+                    let hb  = Heartbeat {
+                        status: my_status,
+                        kind: my_kind,
+                        host: my_host,
                     };
 
                     let resp = serde_json::to_string(&hb).unwrap();
