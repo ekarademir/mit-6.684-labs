@@ -83,7 +83,7 @@ impl NetworkNeighbor {
                             response_body.reader()
                         ){
                             Ok(heartbeat_response) => {
-                                debug!("Received HB response {:?}", heartbeat_response);
+                                debug!("Received response {:?}", heartbeat_response);
                                 heartbeat_response.status
                             },
                             Err(e) => {
