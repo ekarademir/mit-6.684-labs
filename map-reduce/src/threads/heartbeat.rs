@@ -8,7 +8,7 @@ use tokio::sync::mpsc;
 use crate::{MachineState, HeartbeatKillSwitch};
 use crate::system;
 
-const SLEEP_DURATION_SEC:u64 = 2;
+const SLEEP_DURATION_SEC:u64 = 5;
 const NEIGHTBOR_DROP_THRESHOLD:u128 = 5_000_000_000; // ns
 
 
