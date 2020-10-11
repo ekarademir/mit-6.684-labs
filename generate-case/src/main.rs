@@ -30,6 +30,9 @@ enum PartOfSpeech {
     Adjective,
     Adverb,
     Preposition,
+    Conjuction,
+    Pronoun,
+    Number,
 }
 
 #[derive(Debug, PartialEq)]
@@ -95,6 +98,17 @@ fn parse_file(contents: &String) -> Vec<AWord> {
                     "prep." => {
                         part_of_speech.push(PartOfSpeech::Preposition)
                     },
+                    "conj." => {
+                        part_of_speech.push(PartOfSpeech::Conjuction)
+                    },
+                    "pron." => {
+                        part_of_speech.push(PartOfSpeech::Pronoun)
+                    },
+                    "number" => {
+                        part_of_speech.push(PartOfSpeech::Number);
+                        part_of_speech.push(PartOfSpeech::Noun);
+                        part_of_speech.push(PartOfSpeech::Adjective);
+                    },
                     x => {
                         word = x.to_string()
                     }
@@ -106,7 +120,8 @@ fn parse_file(contents: &String) -> Vec<AWord> {
                 level,
             )
         };
-        if level == LangLevel::Unknown {
+        if level == LangLevel::Unknown
+            || part_of_speech.len() == 0 {
             println!(
                 "Word: {:?}, POS: {:?}, Level: {:?}", word, part_of_speech, level
             );
