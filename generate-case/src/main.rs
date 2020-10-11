@@ -1,10 +1,36 @@
 use std::fs;
 use std::env;
+use std::hash::Hash;
+use std::collections::HashMap;
+use std::fmt;
 
 use env_logger;
-use log::{debug};
+use log::{debug, info, error, warn};
+use rand::thread_rng;
+use rand::distributions::WeightedIndex;
+use rand::prelude::*;
 
 const NUM_FILES:usize = 1;
+const WORD_COUNT_MIN:usize = 3;
+const WORD_COUNT_MAX:usize = 7;
+const SENTENCE_COUNT_MIN:usize = 7;
+const SENTENCE_COUNT_MAX:usize = 10;
+const PARAGRAPH_COUNT:usize = 7;
+
+trait Capitalize {
+    fn capitalize(&self) -> String;
+}
+
+impl Capitalize for String {
+    fn capitalize(&self) -> String {
+        let mut chars = self.chars();
+        if let Some(first) = chars.next() {
+            first.to_uppercase().collect::<String>() + chars.as_str()
+        } else {
+            String::new()
+        }
+    }
+}
 
 fn main () {
     env_logger::try_init().expect("Can't initialize logger");
@@ -17,21 +43,33 @@ fn main () {
     match fs::read_to_string(file_path) {
         Ok(contents) => {
             let words = parse_file(&contents);
-            for _ in 0..NUM_FILES {
-                println!("{}", words.len());
+            info!("There are {} words to generate from.", words.len());
+
+            let mut word_bags: HashMap<PartOfSpeech, Vec<AWord>> = HashMap::new();
+            for word in words {
+                if let Some(bag) = word_bags.get_mut(&word.pos) {
+                    bag.push(word);
+                } else {
+                    let mut new_bag: Vec<AWord> = Vec::new();
+                    let key = word.pos.clone();
+                    new_bag.push(word);
+                    word_bags.insert(key, new_bag);
+                }
+            }
+
+            for x in 0..NUM_FILES {
+                info!("Generating file {} of {}", x+1, NUM_FILES);
+                generate_file(&word_bags);
             }
         },
         Err(e) => {
-            println!("Error reading the file {:?}", e);
+            error!("Error reading the file {:?}", e);
         }
     }
 }
 
-fn generate_file(words: &Vec<AWord>){
 
-}
-
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 enum PartOfSpeech {
     Verb,
     Noun,
@@ -60,8 +98,60 @@ enum LangLevel {
 
 struct AWord {
     word: String,
-    level: LangLevel,
     pos: PartOfSpeech,
+    #[allow(dead_code)]
+    level: LangLevel,
+}
+
+impl fmt::Display for AWord {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.word)
+    }
+}
+
+fn generate_file(word_bags: &HashMap<PartOfSpeech, Vec<AWord>>){
+    let choices = [
+        PartOfSpeech::Verb,
+        PartOfSpeech::Noun,
+        PartOfSpeech::Adjective,
+        PartOfSpeech::Adverb,
+        PartOfSpeech::Preposition,
+        PartOfSpeech::Conjunction,
+        PartOfSpeech::Pronoun,
+        PartOfSpeech::Number,
+        PartOfSpeech::Determiner,
+        PartOfSpeech::Exclamation,
+        PartOfSpeech::Article,
+    ];
+    let mut weights = [1; 11];
+    weights[0] = 3;
+    weights[1] = 3;
+    weights[2] = 2;
+
+    let dist = WeightedIndex::new(&weights).unwrap();
+    let mut rng = thread_rng();
+
+    let mut content: Vec<String> = Vec::new();
+
+    for _ in 0..PARAGRAPH_COUNT {
+        let mut paragraph: Vec<String> = Vec::new();
+        for _ in 0..rng.gen_range(SENTENCE_COUNT_MIN, SENTENCE_COUNT_MAX) {
+            let mut sentence: Vec<String> = Vec::new();
+            for _ in 0..rng.gen_range(WORD_COUNT_MIN, WORD_COUNT_MAX) {
+                let pos = choices[dist.sample(&mut rng)];
+                let words = word_bags.get(&pos).unwrap();
+
+                sentence.push(format!("{}", words[rng.gen_range(0, words.len())]));
+            }
+            sentence[0] = sentence[0].capitalize();
+            paragraph.push(format!("{}.", sentence.join(" ")));
+        }
+        content.push(format!("{}", paragraph.join(" ")));
+    }
+
+    println!("{}", content.join("\n"));
+    // TODO: Add weights for punctuations
+    // TODO: Write this to a file
 }
 
 fn parse_file(contents: &String) -> Vec<AWord> {
@@ -97,8 +187,7 @@ fn parse_file(contents: &String) -> Vec<AWord> {
                 _ => LangLevel::Unknown
             };
             for part in line1.trim().split(" ").collect::<Vec<&str>>().iter().rev() {
-                match (*part).trim_end_matches(',') {
-
+                match *part {
                     "verb" => {
                         part_of_speech = PartOfSpeech::Verb
                     },
@@ -133,7 +222,9 @@ fn parse_file(contents: &String) -> Vec<AWord> {
                         part_of_speech = PartOfSpeech::Article
                     },
                     x => {
-                        word = x.to_string()
+                        if x.len() != 0 {
+                            word = x.to_lowercase().to_string()
+                        }
                     }
                 }
             }
@@ -144,8 +235,9 @@ fn parse_file(contents: &String) -> Vec<AWord> {
             )
         };
         if level == LangLevel::Unknown
-            || part_of_speech == PartOfSpeech::Unknown {
-            println!(
+            || part_of_speech == PartOfSpeech::Unknown
+            || word.len() == 0 {
+            warn!(
                 "Word: {:?}, POS: {:?}, Level: {:?}", word, part_of_speech, level
             );
             continue;
