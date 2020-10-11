@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "generate-case",
     "map-reduce",
     "playground",
 ]

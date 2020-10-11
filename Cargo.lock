@@ -229,6 +229,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "generate-case"
+version = "0.1.0"
+dependencies = [
+ "env_logger",
+ "futures",
+ "log",
+ "tokio",
+]
+
+[[package]]
 name = "h2"
 version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
