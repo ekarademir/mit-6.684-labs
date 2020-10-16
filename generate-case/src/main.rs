@@ -1,4 +1,5 @@
 use std::fs;
+use std::io::prelude::*;
 use std::env;
 use std::hash::Hash;
 use std::collections::HashMap;
@@ -10,12 +11,12 @@ use rand::thread_rng;
 use rand::distributions::WeightedIndex;
 use rand::prelude::*;
 
-const NUM_FILES:usize = 1;
+const NUM_FILES:usize = 3;
 const WORD_COUNT_MIN:usize = 3;
-const WORD_COUNT_MAX:usize = 7;
+const WORD_COUNT_MAX:usize = 10;
 const SENTENCE_COUNT_MIN:usize = 7;
-const SENTENCE_COUNT_MAX:usize = 10;
-const PARAGRAPH_COUNT:usize = 7;
+const SENTENCE_COUNT_MAX:usize = 50;
+const PARAGRAPH_COUNT:usize = 20;
 
 trait Capitalize {
     fn capitalize(&self) -> String;
@@ -59,7 +60,13 @@ fn main () {
 
             for x in 0..NUM_FILES {
                 info!("Generating file {} of {}", x+1, NUM_FILES);
-                generate_file(&word_bags);
+                let mut path = env::current_dir().unwrap();
+                path.push(
+                    format!("./generate-case/output/generated_{:02}.txt", x)
+                );
+                generate_file(
+                    &word_bags, path.to_str().unwrap()
+                );
             }
         },
         Err(e) => {
@@ -109,7 +116,7 @@ impl fmt::Display for AWord {
     }
 }
 
-fn generate_file(word_bags: &HashMap<PartOfSpeech, Vec<AWord>>){
+fn generate_file(word_bags: &HashMap<PartOfSpeech, Vec<AWord>>, file_path: &str){
     let choices = [
         PartOfSpeech::Verb,
         PartOfSpeech::Noun,
@@ -149,9 +156,15 @@ fn generate_file(word_bags: &HashMap<PartOfSpeech, Vec<AWord>>){
         content.push(format!("{}", paragraph.join(" ")));
     }
 
-    println!("{}", content.join("\n"));
+    let contents = content.join("\n");
+
+    // println!("{}", contents);
+    debug!("Writing {:?}", file_path);
+    let mut file = fs::File::create(
+        file_path
+    ).unwrap();
+    file.write_all(contents.as_bytes()).unwrap();
     // TODO: Add weights for punctuations
-    // TODO: Write this to a file
 }
 
 fn parse_file(contents: &String) -> Vec<AWord> {
