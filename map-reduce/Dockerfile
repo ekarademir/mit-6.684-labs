@@ -1,11 +1,16 @@
-FROM rust:1.46-buster as compile
+FROM rust:1.46-buster as builder
+WORKDIR /usr/src
+RUN USER=root cargo new --bin map-reduce
 WORKDIR /usr/src/map-reduce
-COPY . .
+COPY Cargo.toml .
+RUN cargo build --release
+RUN rm -rf src/
+ADD . ./
 RUN cargo build --release
 
 FROM rust:1.46-buster as serve
 WORKDIR /root
-COPY --from=compile /usr/src/map-reduce/target/release/map-reduce .
+COPY --from=builder /usr/src/map-reduce/target/release/map-reduce .
 ENV RUST_LOG=info
 EXPOSE 3000
 CMD ["./map-reduce"]
