@@ -10,6 +10,7 @@ use tokio::runtime::Runtime;
 use crate::api::{self, system};
 use crate::MachineState;
 use crate::HostPort;
+use crate::tasks;
 
 const SLEEP_DURATION_SEC:u64 = 2;
 const RETRY_TIMES:usize = 4;
@@ -110,8 +111,28 @@ pub fn spawn_inner(state: MachineState) -> JoinHandle<()> {
                 }
             }
             // Run tasks
-            {
-                // TODO call assignTask on each worker
+            if my_kind == system::MachineKind::Master  {
+                let workers = {
+                    let state = main_state.lock().unwrap();
+                    state.workers.clone()
+                };
+
+                let first_task = tasks::CountWords {
+                    input: tasks::TaskInput {
+                        machine_addr: "http://some.machine".to_string(),
+                        file: "some_file.txt".to_string(),
+                    },
+                };
+
+                {
+                    for worker in workers.lock().unwrap().iter() {
+                        if let Ok(task_assign_response) = worker.assign_task(&first_task).await {
+                            debug!("{:?}", task_assign_response);
+                            break;
+                        }
+                    }
+                }
+
             }
         });
     }).unwrap()
