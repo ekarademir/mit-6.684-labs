@@ -109,6 +109,10 @@ pub fn spawn_inner(state: MachineState) -> JoinHandle<()> {
                     );
                 }
             }
+            // Run tasks
+            {
+                // TODO call assignTask on each worker
+            }
         });
     }).unwrap()
 }

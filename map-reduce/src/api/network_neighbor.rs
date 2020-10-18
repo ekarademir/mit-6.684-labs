@@ -9,6 +9,8 @@ use log::{debug, error};
 use crate::HostPort;
 use super::endpoints;
 use super::system;
+use crate::errors;
+use crate::tasks;
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum MachineKind {
@@ -35,6 +37,11 @@ pub struct Heartbeat {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct TaskAssignResponse {
+    pub result: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct NetworkNeighbor {
     pub addr: String,
     pub kind: MachineKind,
@@ -54,6 +61,43 @@ impl Clone for NetworkNeighbor {
 }
 
 impl NetworkNeighbor {
+    pub async fn assignTask(&self, task: impl tasks::MapReduceTask + Serialize) -> Result<(), errors::TaskAssignError> {
+        if self.status != Status::Ready {
+            return Err(errors::TaskAssignError::NotReadyYet);
+        }
+        let client = Client::new();
+        let uri = self.addr.parse::<Uri>().unwrap();
+        let req_body = Body::from(serde_json::to_string(&task).unwrap());
+        let req = Request::post(uri)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(req_body)
+            .unwrap();
+        match client.request(req).await {
+            Ok(res) => match body::aggregate(res).await {
+                Ok(response_body) => match serde_json::from_reader::<_, TaskAssignResponse> (
+                    response_body.reader()
+                ){
+                    Ok(task_assign_response) => {
+                        debug!("Received response {:?}", task_assign_response);
+                        Ok(())
+                    },
+                    Err(e) => {
+                        error!("Couldn't parse response: {:?}", e);
+                        Err(errors::TaskAssignError::NotReadyYet)
+                    }
+                },
+                Err(e)=> {
+                    error!("Couldn't aggregate response body: {:?}", e);
+                    Err(errors::TaskAssignError::NotReadyYet)
+                }
+            },
+            Err(e) => {
+                error!("Couldn't get a response: {:?}", e);
+                Err(errors::TaskAssignError::NotReadyYet)
+            }
+        }
+    }
+
     pub async fn exchange_heartbeat(&self, host: String, kind: MachineKind, status: Status) -> Status {
         let client = Client::new();
         match self.addr.parse::<Uri>() {
@@ -71,12 +115,12 @@ impl NetworkNeighbor {
                 ).parse::<Uri>().unwrap();
 
                 debug!("Sending request to {:?}", uri);
+                // Prep request
                 let req = Request::post(uri)
                     .header(header::CONTENT_TYPE, "application/json")
                     .body(req_body)
                     .unwrap();
-
-                // let heartbeat: Heartbeat;
+                // Send
                 match client.request(req).await {
                     Ok(res) => match body::aggregate(res).await {
                         Ok(response_body) => match serde_json::from_reader::<_, system::HeartbeatResponse> (

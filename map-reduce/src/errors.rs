@@ -8,3 +8,8 @@ pub enum CommunicationError {
     CantCreateResponseBytes,
     CantDeserializeResponse,
 }
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum TaskAssignError {
+    NotReadyYet,
+}

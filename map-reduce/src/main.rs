@@ -1,6 +1,7 @@
 mod api;
 mod errors;
 mod threads;
+mod tasks;
 
 use std::collections::HashSet;
 use std::env;
@@ -157,18 +158,7 @@ fn main() {
 }
 
 // TODO handle SIGTERM to kill threads too
-
 // TODO master assigns work to workers
-/*
-ag komsulari gereksiz, her node kendini biliyor.
-eger bir node master ise, yeterince workerin aga katilmasini bekler
-eger bir node worker ise, verilen master a heartbeat gonderir, ilk heartbeat ayni zamanda register eder
-
-master node yeterince worker oldukca is yatirmaya devam eder
-    yeterli worker node kiritk seviyenin altina duserse yeni is yuklemez, verilen islerin bitimini
-    takip eder
-
-*/
-// TODO (Optional) Make it workable via https
-
 // TODO add test for master, receiving heartbeat from worker
+
+// TODO (Optional) Make it workable via https
