@@ -36,9 +36,9 @@ pub struct Heartbeat {
     pub host: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct TaskAssignResponse {
-    pub result: String,
+    pub result: tasks::TaskStatus,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -61,9 +61,9 @@ impl Clone for NetworkNeighbor {
 }
 
 impl NetworkNeighbor {
-    pub async fn assignTask(&self, task: &(impl tasks::MapReduceTask + Serialize)) -> Result<TaskAssignResponse, errors::TaskAssignError> {
+    pub async fn assign_task(&self, task: &(impl tasks::MapReduceTask + Serialize)) -> Result<TaskAssignResponse, errors::ResponseError> {
         if self.status != Status::Ready {
-            return Err(errors::TaskAssignError::NotReadyYet);
+            return Err(errors::ResponseError::NotReadyYet);
         }
         let client = Client::new();
         let uri = self.addr.parse::<Uri>().unwrap();
@@ -87,17 +87,17 @@ impl NetworkNeighbor {
                     },
                     Err(e) => {
                         error!("Couldn't parse response: {:?}", e);
-                        Err(errors::TaskAssignError::NotReadyYet)
+                        Err(errors::ResponseError::CantParseResponse)
                     }
                 },
                 Err(e)=> {
                     error!("Couldn't aggregate response body: {:?}", e);
-                    Err(errors::TaskAssignError::NotReadyYet)
+                    Err(errors::ResponseError::CantBufferContents)
                 }
             },
             Err(e) => {
                 error!("Couldn't get a response: {:?}", e);
-                Err(errors::TaskAssignError::NotReadyYet)
+                Err(errors::ResponseError::Offline)
             }
         }
     }
@@ -245,5 +245,133 @@ mod tests {
             "http://test.com".to_string(), system::MachineKind::Worker, system::Status::NotReady
         ).await;
         assert!(hb_response == system::Status::Offline);
+    }
+
+    #[tokio::test]
+    #[cfg_attr(feature = "single_out", ignore)]
+    async fn test_assigning_task() {
+        // Uncomment for debugging
+        // let _ = env_logger::try_init();
+
+        use httptest::{Server, Expectation, matchers::*, responders::*};
+
+        use crate::api::{endpoints, system};
+        use crate::api::network_neighbor::NetworkNeighbor;
+        use crate::tasks;
+
+        let task_assignment_response = serde_json::json!(
+            {
+                "result": "Queued"
+            }
+        );
+        let task_assignment = serde_json::json!(
+            {
+                "input": {
+                    "machine_addr": "http://some.machine",
+                    "file": "some_file.txt"
+                }
+            }
+        );
+
+        // Setup server to act as a Worker
+        let server = Server::run();
+
+        server.expect(
+            Expectation::matching(all_of![
+                request::method_path("POST", endpoints::ASSIGN_TASK),
+                request::body(json_decoded(eq(task_assignment)))
+            ]).respond_with(
+                json_encoded(task_assignment_response.clone()
+            )),
+        );
+        let url = server.url("/");
+        // Create worker NetworkNeighbor
+        let test_neighbor = NetworkNeighbor {
+            addr: url.to_string(),
+            kind: system::MachineKind::Worker,
+            status: system::Status::Ready,
+            last_heartbeat_ns: 0
+        };
+
+        let test_task = tasks::CountWords {
+            input: tasks::TaskInput {
+                machine_addr: "http://some.machine".to_string(),
+                file: "some_file.txt".to_string(),
+            },
+        };
+
+        // Run test
+        let response = test_neighbor.assign_task(
+            &test_task
+        ).await;
+        assert_eq!(response.ok(), Some(
+            super::TaskAssignResponse {
+                result: tasks::TaskStatus::Queued,
+            }
+        ));
+
+    }
+    #[tokio::test]
+    #[cfg_attr(feature = "single_out", ignore)]
+    async fn test_assigning_task_notready() {
+        // Uncomment for debugging
+        // let _ = env_logger::try_init();
+
+        use crate::api::system;
+        use crate::api::network_neighbor::NetworkNeighbor;
+        use crate::errors;
+        use crate::tasks;
+        // Create worker NetworkNeighbor
+        let test_neighbor = NetworkNeighbor {
+            addr: "http://worker".to_string(),
+            kind: system::MachineKind::Worker,
+            status: system::Status::NotReady,
+            last_heartbeat_ns: 0
+        };
+
+        let test_task = tasks::CountWords {
+            input: tasks::TaskInput {
+                machine_addr: "http://some.machine".to_string(),
+                file: "some_file.txt".to_string(),
+            },
+        };
+
+        // Run test
+        let response = test_neighbor.assign_task(
+            &test_task
+        ).await;
+        assert_eq!(response.err(), Some(errors::ResponseError::NotReadyYet));
+
+    }
+    #[tokio::test]
+    #[cfg_attr(feature = "single_out", ignore)]
+    async fn test_assigning_task_offline() {
+        // Uncomment for debugging
+        // let _ = env_logger::try_init();
+
+        use crate::api::system;
+        use crate::api::network_neighbor::NetworkNeighbor;
+        use crate::errors;
+        use crate::tasks;
+        // Create worker NetworkNeighbor
+        let test_neighbor = NetworkNeighbor {
+            addr: "http://worker".to_string(),
+            kind: system::MachineKind::Worker,
+            status: system::Status::Ready,
+            last_heartbeat_ns: 0
+        };
+
+        let test_task = tasks::CountWords {
+            input: tasks::TaskInput {
+                machine_addr: "http://some.machine".to_string(),
+                file: "some_file.txt".to_string(),
+            },
+        };
+
+        // Run test
+        let response = test_neighbor.assign_task(
+            &test_task
+        ).await;
+        assert_eq!(response.err(), Some(errors::ResponseError::Offline));
     }
 }
