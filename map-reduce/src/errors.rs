@@ -9,7 +9,10 @@ pub enum CommunicationError {
     CantDeserializeResponse,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub enum TaskAssignError {
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub enum ResponseError {
     NotReadyYet,
+    CantParseResponse,
+    CantBufferContents,
+    Offline,
 }
