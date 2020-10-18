@@ -161,4 +161,32 @@ pub async fn about(state: MachineState) -> String {
     serde_json::to_string(&about_response).unwrap()
 }
 
+pub async fn assign_task(state: MachineState) -> String {
+    debug!("/assign_task()");
+    // let (
+    //     kind,
+    //     network
+    // ) = {
+    //     let machine_state = state.lock().unwrap();
+    //     let mut network: Vec<NetworkNeighbor> = Vec::new();
+    //     if let Some(master) = &machine_state.master {
+    //         network.push(master.clone())
+    //     }
+    //     machine_state.workers.lock().unwrap().iter().for_each(|worker| {
+    //         network.push(worker.clone());
+    //     });
+    //     (
+    //         machine_state.kind.clone(),
+    //         network,
+    //     )
+    // };
+    // let about_response = AboutResponse {
+    //     kind,
+    //     network,
+    // };
+
+    // serde_json::to_string(&about_response).unwrap()
+    String::new()
+}
+
 // TODO Add tests for endpoints
