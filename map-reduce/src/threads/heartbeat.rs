@@ -159,6 +159,12 @@ mod tests {
         use crate::api::network_neighbor::NetworkNeighbor;
         use crate::Machine;
 
+        let hb_from_master = serde_json::json!(
+            {
+                "status": "Ready"
+            }
+        );
+
         // Setup server to act as a Master
         let server = Server::run();
         server.expect(
@@ -173,7 +179,9 @@ mod tests {
                 ))))
             ])
             .times(1..)
-            .respond_with(status_code(200)),
+            .respond_with(
+                json_encoded(hb_from_master.clone()
+            )),
         );
         let url = server.url("/");
         // form Machine state
@@ -238,6 +246,12 @@ mod tests {
         use crate::api::network_neighbor::NetworkNeighbor;
         use crate::Machine;
 
+        let hb_from_master = serde_json::json!(
+            {
+                "status": "Ready"
+            }
+        );
+
         // Setup server to act as a Worker
         let server = Server::run();
         server.expect(
@@ -252,7 +266,9 @@ mod tests {
                 ))))
             ])
             .times(1..)
-            .respond_with(status_code(200)),
+            .respond_with(
+                json_encoded(hb_from_master.clone()
+            )),
         );
         let url = server.url("/");
         // form Machine state
