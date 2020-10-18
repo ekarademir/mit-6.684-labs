@@ -141,6 +141,7 @@ pub fn spawn_heartbeat(
 #[cfg(test)]
 mod tests {
     #[tokio::test]
+    #[cfg_attr(feature = "single_out", ignore)]
     async fn test_heartbeats_from_worker() {
         // Uncomment for debugging
         // let _ = env_logger::try_init();
@@ -219,6 +220,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg_attr(feature = "single_out", ignore)]
     async fn test_heartbeats_from_master() {
         // Uncomment for debugging
         // let _ = env_logger::try_init();
@@ -300,6 +302,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg_attr(feature = "single_out", ignore)]
     #[should_panic]
     async fn test_heartbeats_from_worker_notready_master() {
         // Uncomment for debugging
@@ -391,6 +394,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg_attr(feature = "single_out", ignore)]
     #[should_panic]
     async fn test_heartbeats_from_worker_offline_master() {
         // Uncomment for debugging

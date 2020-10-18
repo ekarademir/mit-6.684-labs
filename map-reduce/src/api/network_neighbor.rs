@@ -61,12 +61,16 @@ impl Clone for NetworkNeighbor {
 }
 
 impl NetworkNeighbor {
-    pub async fn assignTask(&self, task: impl tasks::MapReduceTask + Serialize) -> Result<(), errors::TaskAssignError> {
+    pub async fn assignTask(&self, task: &(impl tasks::MapReduceTask + Serialize)) -> Result<TaskAssignResponse, errors::TaskAssignError> {
         if self.status != Status::Ready {
             return Err(errors::TaskAssignError::NotReadyYet);
         }
         let client = Client::new();
         let uri = self.addr.parse::<Uri>().unwrap();
+        let uri = format!("http://{}{}",
+                uri.host_port(),
+                endpoints::ASSIGN_TASK
+            ).parse::<Uri>().unwrap();
         let req_body = Body::from(serde_json::to_string(&task).unwrap());
         let req = Request::post(uri)
             .header(header::CONTENT_TYPE, "application/json")
@@ -79,7 +83,7 @@ impl NetworkNeighbor {
                 ){
                     Ok(task_assign_response) => {
                         debug!("Received response {:?}", task_assign_response);
-                        Ok(())
+                        Ok(task_assign_response)
                     },
                     Err(e) => {
                         error!("Couldn't parse response: {:?}", e);
@@ -171,6 +175,7 @@ impl Hash for NetworkNeighbor {
 #[cfg(test)]
 mod tests {
     #[tokio::test]
+    #[cfg_attr(feature = "single_out", ignore)]
     async fn test_sending_heartbeat() {
         // Uncomment for debugging
         // let _ = env_logger::try_init();
@@ -220,6 +225,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg_attr(feature = "single_out", ignore)]
     async fn test_sending_heartbeat_fail_offline() {
         // Uncomment for debugging
         // let _ = env_logger::try_init();
