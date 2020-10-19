@@ -11,7 +11,7 @@ path = "src/main.rs"
 [features]
 # If used, all tests except the test without this flag will be ignored
 # A good way to use testing for development
-single_out = []
+dont_test_this = []
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
