@@ -37,6 +37,7 @@ pub trait MapReduceTask {
 
 #[derive(Serialize, Deserialize)]
 pub struct CountWords {
+    pub task: ATask,
     pub input: TaskInput,
 }
 
@@ -49,4 +50,9 @@ impl MapReduceTask for CountWords {
             })
         })
     }
+}
+
+#[derive(Serialize, Deserialize)]
+pub enum ATask {
+    CountWords,
 }

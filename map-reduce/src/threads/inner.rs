@@ -118,6 +118,7 @@ pub fn spawn_inner(state: MachineState) -> JoinHandle<()> {
                 };
 
                 let first_task = tasks::CountWords {
+                    task: tasks::ATask::CountWords,
                     input: tasks::TaskInput {
                         machine_addr: "http://some.machine".to_string(),
                         file: "some_file.txt".to_string(),
