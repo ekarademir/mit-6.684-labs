@@ -12,6 +12,7 @@ pub enum TaskStatus {
     Started,
     Running,
     Error,
+    CantAssign,
 }
 
 pub struct CompletedTask {
