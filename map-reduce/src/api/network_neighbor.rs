@@ -83,7 +83,11 @@ impl NetworkNeighbor {
                 ){
                     Ok(task_assign_response) => {
                         debug!("Received response {:?}", task_assign_response);
-                        Ok(task_assign_response)
+                        if task_assign_response.result == tasks::TaskStatus::Queued {
+                            Ok(task_assign_response)
+                        } else {
+                            Err(errors::ResponseError::NotReadyYet)
+                        }
                     },
                     Err(e) => {
                         error!("Couldn't parse response: {:?}", e);
