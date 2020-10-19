@@ -8,9 +8,10 @@ use log::{debug, info, error};
 use tokio::sync::mpsc;
 
 use crate::MachineState;
+use crate::tasks;
 
 pub use super::network_neighbor::{
-    MachineKind, Status, NetworkNeighbor, Heartbeat
+    MachineKind, Status, NetworkNeighbor, Heartbeat, TaskAssignResponse
 };
 
 // API Responses
@@ -161,32 +162,117 @@ pub async fn about(state: MachineState) -> String {
     serde_json::to_string(&about_response).unwrap()
 }
 
-pub async fn assign_task(state: MachineState) -> String {
+pub async fn assign_task(
+    req: Request<Body>,
+    state: MachineState,
+    mut task_sender: mpsc::Sender<tasks::TaskInput>
+) -> String {
     debug!("/assign_task()");
-    // let (
-    //     kind,
-    //     network
-    // ) = {
-    //     let machine_state = state.lock().unwrap();
-    //     let mut network: Vec<NetworkNeighbor> = Vec::new();
-    //     if let Some(master) = &machine_state.master {
-    //         network.push(master.clone())
-    //     }
-    //     machine_state.workers.lock().unwrap().iter().for_each(|worker| {
-    //         network.push(worker.clone());
-    //     });
-    //     (
-    //         machine_state.kind.clone(),
-    //         network,
-    //     )
-    // };
-    // let about_response = AboutResponse {
-    //     kind,
-    //     network,
-    // };
+    let mut task_assign_response: TaskAssignResponse = TaskAssignResponse {
+        result: tasks::TaskStatus::Error,
+    };
+    // In order to prevent hearbeat thread to signal Ready, immediately set state to Busy
+    {
+        if let Ok(mut state) = state.try_lock() {
+            state.status = Status::Busy;
+        } else {
+            error!("Can't get state lock to set Busy");
+            task_assign_response.result = tasks::TaskStatus::CantAssign;
+        }
+    }
+    // We set the state to Busy, now try sending the task to task channel
+    // Since there is only one master, we are not expecting competing task assignments
+    // We are also keeping master on-hold until we can parse the message and send it to
+    // the task runner
 
-    // serde_json::to_string(&about_response).unwrap()
-    String::new()
+    // TODO Parse body and contents
+
+    // Server can get online before task running thread can receive it
+    if let Ok(sent) = task_sender.try_send(message) {
+
+    } else {
+        error!("Can't send task to task");
+        task_assign_response.result = tasks::TaskStatus::CantAssign;
+    }
+
+    serde_json::to_string(&task_assign_response).unwrap()
 }
 
-// TODO Add tests for endpoints
+#[cfg(test)]
+mod tests {
+    #[tokio::test]
+    // #[cfg_attr(feature = "dont_test_this", ignore)]
+    async fn test_endpoint_assign_task() {
+        // Uncomment for debugging
+        let _ = env_logger::try_init();
+
+        use std::collections::HashSet;
+        use std::net::SocketAddr;
+        use std::sync::{Arc, Mutex};
+        use std::time::{Duration, Instant};
+
+        use hyper::{Body, Request, Uri};
+        use tokio::sync::{mpsc, oneshot};
+
+        use crate::api::{endpoints, system};
+        use crate::api::network_neighbor::NetworkNeighbor;
+        use crate::Machine;
+        use crate::tasks;
+
+        let task_assignment = serde_json::json!(
+            {
+                "task": "CountWords",
+                "input": {
+                    "machine_addr": "http://some.machine",
+                    "file": "some_file.txt"
+                }
+            }
+        );
+
+        // Build Request
+        let req: Request<Body> = Request::builder()
+            .body(task_assignment.to_string().into())
+            .unwrap();
+
+        // Build Machine state
+        let master = NetworkNeighbor {
+            addr: "http://some.machine".to_string(),
+            kind: system::MachineKind::Master,
+            status: system::Status::NotReady,
+            last_heartbeat_ns: 0
+        };
+
+        let url = "http://some.machine".parse::<Uri>().unwrap();
+
+        let state = Arc::new(
+            Mutex::new(
+                Machine {
+                    kind: system::MachineKind::Worker,
+                    status: system::Status::NotReady,
+                    socket: "0.0.0.0:3000".parse::<SocketAddr>().unwrap(),
+                    host: "http://test.com".to_string(),
+                    boot_instant: Instant::now(),
+                    master: Some(master),
+                    workers: Arc::new(
+                        Mutex::new(
+                            HashSet::new()
+                        )
+                    ),
+                    master_uri: Some(url)
+                }
+            )
+        );
+
+        // Build comm channels
+        let (task_tx, task_rx) = mpsc::channel::<tasks::TaskInput>(100);
+        let (ack_tx, ack_rx) = mpsc::channel::<()>(100);
+
+        // Send task
+        let response = super::assign_task(req, state, task_tx.clone()).await;
+
+        // TODO assing task returns queued message
+        assert_eq!(response, "osman".to_string());
+        // TODO task is sent to channel
+        // TODO Machine state is set to busy
+    }
+}
