@@ -165,7 +165,7 @@ pub async fn about(state: MachineState) -> String {
 pub async fn assign_task(
     req: Request<Body>,
     state: MachineState,
-    mut task_sender: mpsc::Sender<tasks::TaskInput>
+    mut task_sender: mpsc::Sender<tasks::TaskAssignment>
 ) -> String {
     debug!("/assign_task()");
     let mut task_assign_response: TaskAssignResponse = TaskAssignResponse {
@@ -174,28 +174,56 @@ pub async fn assign_task(
     // In order to prevent hearbeat thread to signal Ready, immediately set state to Busy
     {
         if let Ok(mut state) = state.try_lock() {
-            state.status = Status::Busy;
+            match state.status {
+                Status::Ready => state.status = Status::Busy,
+                Status::Busy => {
+                    error!("Already running");
+                    task_assign_response.result = tasks::TaskStatus::Running;
+                    return serde_json::to_string(&task_assign_response).unwrap();
+                },
+                _ => {
+                    error!("Not ready to assign a task.");
+                    return ErrorResponse::request_problem(
+                        "Not ready to assign a task.".to_string()
+                    );
+                }
+            }
         } else {
             error!("Can't get state lock to set Busy");
-            task_assign_response.result = tasks::TaskStatus::CantAssign;
+            return ErrorResponse::request_problem(
+                "Can't get state lock to set Busy".to_string()
+            );
         }
     }
     // We set the state to Busy, now try sending the task to task channel
     // Since there is only one master, we are not expecting competing task assignments
     // We are also keeping master on-hold until we can parse the message and send it to
     // the task runner
-
-    // TODO Parse body and contents
-
-    // Server can get online before task running thread can receive it
-    if let Ok(sent) = task_sender.try_send(message) {
-
-    } else {
-        error!("Can't send task to task");
-        task_assign_response.result = tasks::TaskStatus::CantAssign;
+    match hyper::body::aggregate(req).await {
+        Ok(body) => {
+            match serde_json::from_reader::<_, tasks::TaskAssignment>(body.reader()) {
+                Ok(assignment) => {
+                    info!("Task assignment received: {:?}", assignment.task);
+                    // Server can get online before task running thread can receive it
+                    if let Ok(_) = task_sender.try_send(assignment) {
+                        task_assign_response.result = tasks::TaskStatus::Queued;
+                        serde_json::to_string(&task_assign_response).unwrap()
+                    } else {
+                        error!("Can't send task to task");
+                        task_assign_response.result = tasks::TaskStatus::CantAssign;
+                        serde_json::to_string(&task_assign_response).unwrap()
+                    }
+                },
+                Err(e) => {
+                    error!("Can't parse task assignment request, {:?}", e);
+                    ErrorResponse::request_problem(e.to_string())
+                }
+            }
+        },
+        Err(e) => {
+            ErrorResponse::request_problem(e.to_string())
+        }
     }
-
-    serde_json::to_string(&task_assign_response).unwrap()
 }
 
 #[cfg(test)]
@@ -264,7 +292,7 @@ mod tests {
         );
 
         // Build comm channels
-        let (task_tx, task_rx) = mpsc::channel::<tasks::TaskInput>(100);
+        let (task_tx, task_rx) = mpsc::channel::<tasks::TaskAssignment>(100);
         let (ack_tx, ack_rx) = mpsc::channel::<()>(100);
 
         // Send task
