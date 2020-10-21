@@ -117,7 +117,7 @@ pub fn spawn_inner(state: MachineState) -> JoinHandle<()> {
                     state.workers.clone()
                 };
 
-                let first_task = tasks::CountWords {
+                let first_task = tasks::TaskAssignment {
                     task: tasks::ATask::CountWords,
                     input: tasks::TaskInput {
                         machine_addr: "http://some.machine".to_string(),

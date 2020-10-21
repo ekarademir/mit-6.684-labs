@@ -61,7 +61,7 @@ impl Clone for NetworkNeighbor {
 }
 
 impl NetworkNeighbor {
-    pub async fn assign_task(&self, task: &(impl tasks::MapReduceTask + Serialize)) -> Result<TaskAssignResponse, errors::ResponseError> {
+    pub async fn assign_task(&self, task: &tasks::TaskAssignment) -> Result<TaskAssignResponse, errors::ResponseError> {
         if self.status != Status::Ready {
             return Err(errors::ResponseError::NotReadyYet);
         }
@@ -86,6 +86,11 @@ impl NetworkNeighbor {
                         if task_assign_response.result == tasks::TaskStatus::Queued {
                             Ok(task_assign_response)
                         } else {
+                            error!(
+                                "Worker@{:} not ready yet: {:?}",
+                                self.addr,
+                                task_assign_response.result
+                            );
                             Err(errors::ResponseError::NotReadyYet)
                         }
                     },
@@ -298,7 +303,7 @@ mod tests {
             last_heartbeat_ns: 0
         };
 
-        let test_task = tasks::CountWords {
+        let test_task = tasks::TaskAssignment {
             task: tasks::ATask::CountWords,
             input: tasks::TaskInput {
                 machine_addr: "http://some.machine".to_string(),
@@ -335,7 +340,7 @@ mod tests {
             last_heartbeat_ns: 0
         };
 
-        let test_task = tasks::CountWords {
+        let test_task = tasks::TaskAssignment {
             task: tasks::ATask::CountWords,
             input: tasks::TaskInput {
                 machine_addr: "http://some.machine".to_string(),
@@ -368,7 +373,7 @@ mod tests {
             last_heartbeat_ns: 0
         };
 
-        let test_task = tasks::CountWords {
+        let test_task = tasks::TaskAssignment {
             task: tasks::ATask::CountWords,
             input: tasks::TaskInput {
                 machine_addr: "http://some.machine".to_string(),

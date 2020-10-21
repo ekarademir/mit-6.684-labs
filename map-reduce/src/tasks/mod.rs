@@ -37,23 +37,23 @@ pub trait MapReduceTask {
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct CountWords {
+pub struct TaskAssignment {
     pub task: ATask,
     pub input: TaskInput,
 }
 
-impl MapReduceTask for CountWords {
-    fn execute(&self) -> FutureTask {
-        Box::pin(async {
-            Ok(CompletedTask {
-                key: "SomeKey".to_string(),
-                value: "Some Value".to_string()
-            })
-        })
-    }
-}
+// impl MapReduceTask for CountWords {
+//     fn execute(&self) -> FutureTask {
+//         Box::pin(async {
+//             Ok(CompletedTask {
+//                 key: "SomeKey".to_string(),
+//                 value: "Some Value".to_string()
+//             })
+//         })
+//     }
+// }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum ATask {
     CountWords,
 }
