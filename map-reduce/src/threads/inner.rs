@@ -134,6 +134,8 @@ pub fn spawn_inner(state: MachineState) -> JoinHandle<()> {
                     }
                 }
 
+            } else { // Worker
+                //
             }
         });
     }).unwrap()
