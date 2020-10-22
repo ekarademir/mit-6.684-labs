@@ -135,7 +135,10 @@ pub fn spawn_inner(state: MachineState) -> JoinHandle<()> {
                 }
 
             } else { // Worker
-                //
+                // TODO task receiver will bereated by main
+                // thread and will not be dropped until main thread is done hence we can
+                // listen to it via `while let`
+                // Panic to stop execution? or dont' panic at all.
             }
         });
     }).unwrap()
