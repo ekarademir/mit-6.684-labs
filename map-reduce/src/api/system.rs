@@ -276,7 +276,7 @@ mod tests {
             Mutex::new(
                 Machine {
                     kind: system::MachineKind::Worker,
-                    status: system::Status::NotReady,
+                    status: system::Status::Ready,
                     socket: "0.0.0.0:3000".parse::<SocketAddr>().unwrap(),
                     host: "http://test.com".to_string(),
                     boot_instant: Instant::now(),
@@ -292,15 +292,25 @@ mod tests {
         );
 
         // Build comm channels
-        let (task_tx, task_rx) = mpsc::channel::<tasks::TaskAssignment>(100);
-        let (ack_tx, ack_rx) = mpsc::channel::<()>(100);
+        let (task_tx, mut task_rx) = mpsc::channel::<tasks::TaskAssignment>(100);
 
         // Send task
-        let response = super::assign_task(req, state, task_tx.clone()).await;
+        let response = super::assign_task(req, state.clone(), task_tx.clone()).await;
 
-        // TODO assing task returns queued message
-        assert_eq!(response, "osman".to_string());
-        // TODO task is sent to channel
-        // TODO Machine state is set to busy
+        let expected_response = serde_json::json!({
+            "result": "Queued"
+        });
+
+        // Assing task returns queued message
+        assert_eq!(response, serde_json::to_string(&expected_response).unwrap());
+        // Task is sent to channel
+        let assigned_task = task_rx.recv().await.unwrap();
+        assert_eq!(serde_json::to_value(assigned_task).unwrap(), task_assignment);
+        // Machine state is set to busy
+        let status = {
+            let state = state.lock().unwrap();
+            state.status.clone()
+        };
+        assert_eq!(status, system::Status::Busy);
     }
 }

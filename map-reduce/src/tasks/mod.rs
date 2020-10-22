@@ -20,7 +20,7 @@ pub struct CompletedTask {
     value: String,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(PartialEq, Serialize, Deserialize)]
 pub struct TaskInput {
     pub machine_addr: String,
     pub file: String,
@@ -36,7 +36,7 @@ pub trait MapReduceTask {
     fn execute(&self) -> FutureTask;
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(PartialEq, Serialize, Deserialize)]
 pub struct TaskAssignment {
     pub task: ATask,
     pub input: TaskInput,
@@ -53,7 +53,7 @@ pub struct TaskAssignment {
 //     }
 // }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub enum ATask {
     CountWords,
 }
