@@ -229,10 +229,10 @@ pub async fn assign_task(
 #[cfg(test)]
 mod tests {
     #[tokio::test]
-    // #[cfg_attr(feature = "dont_test_this", ignore)]
+    #[cfg_attr(feature = "dont_test_this", ignore)]
     async fn test_endpoint_assign_task() {
         // Uncomment for debugging
-        let _ = env_logger::try_init();
+        // let _ = env_logger::try_init();
 
         use std::collections::HashSet;
         use std::net::SocketAddr;
