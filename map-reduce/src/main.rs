@@ -136,6 +136,8 @@ fn main() {
     let (stop_hb_tx, stop_hb_rx) = oneshot::channel::<()>();
     // Heartbeat funnel
     let (heartbeat_tx, heartbeat_rx) = mpsc::channel::<system::NetworkNeighbor>(100);
+    // Task funnel
+    let (task_tx, task_rx) = mpsc::channel::<tasks::TaskAssignment>(100);
 
     let heartbeat_kill_sw: HeartbeatKillSwitch = Arc::new(
         Mutex::new(
