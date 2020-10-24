@@ -2,27 +2,14 @@
 // Playground
 // ############################################################################
 
-use tokio;
-use tokio::sync::mpsc;
+use std::net::SocketAddr;
+use hyper::Uri;
+
+fn main() {
 
 
-#[tokio::main]
-async fn main() -> Result<(), ()> {
-    let (tx, mut rx) = mpsc::channel(100);
+    let my_uri = "http://0.0.0.0:1234".parse::<Uri>().unwrap();
+    let my_socket: SocketAddr = my_uri.into_parts().authority.unwrap().as_str().parse::<SocketAddr>().unwrap();
 
-    for i in 0..10 {
-        let mut tx = tx.clone();
-
-        tokio::spawn(async move {
-            tx.send(i).await.unwrap();
-        });
-    }
-
-    drop(tx);
-
-    while let Some(res) = rx.recv().await {
-        println!("{}", res);
-    }
-
-    Ok(())
+    println!("{:?}", my_socket);
 }

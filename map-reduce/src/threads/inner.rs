@@ -164,45 +164,56 @@ mod tests {
         use crate::api::network_neighbor::NetworkNeighbor;
         use crate::Machine;
 
-        let hb_from_master = serde_json::json!(
+        let health_response = serde_json::json!(
             {
-                "status": "Ready"
+                "some": "Response"
             }
         );
 
-        // Setup server to act as a Master
-        let server = Server::run();
-        server.expect(
+        // Set up a worker machine that starts listening to tasks
+        // Set up the http server to send I'm up message from server thread
+        let server_thread = Server::run();
+        server_thread.expect(
             Expectation::matching(all_of![
-                request::method_path("POST", endpoints::HEARTBEAT),
-                request::body(json_decoded(eq(serde_json::json!(
-                    {
-                        "kind": "Worker",
-                        "status": "NotReady",
-                        "host": "http://test.com"
-                    }
-                ))))
+                request::method_path("GET", endpoints::HEALTH)
             ])
             .times(1..)
             .respond_with(
-                json_encoded(hb_from_master.clone()
+                json_encoded(health_response.clone()
             )),
         );
-        let url = server.url("/");
-        // form Machine state
+        let host = server_thread.url("/");
+        let socket = host.clone()
+                        .into_parts()
+                        .authority.unwrap()
+                        .as_str().parse::<SocketAddr>().unwrap();
+
+        // Setup master server to so that this worker is ready
+        let master = Server::run();
+        master.expect(
+            Expectation::matching(all_of![
+                request::method_path("GET", endpoints::HEALTH)
+            ])
+            .times(1..)
+            .respond_with(
+                json_encoded(health_response.clone()
+            )),
+        );
+        let master_url = server_thread.url("/");
         let master = NetworkNeighbor {
-            addr: url.to_string(),
+            addr: master_url.to_string(),
             kind: system::MachineKind::Master,
             status: system::Status::NotReady,
             last_heartbeat_ns: 0
         };
+
         let machine_state = Arc::new(
             Mutex::new(
                 Machine {
                     kind: system::MachineKind::Worker,
                     status: system::Status::NotReady,
-                    socket: "0.0.0.0:3000".parse::<SocketAddr>().unwrap(),
-                    host: "http://test.com".to_string(),
+                    socket,
+                    host: host.to_string(),
                     boot_instant: Instant::now(),
                     master: Some(master),
                     workers: Arc::new(
@@ -210,25 +221,12 @@ mod tests {
                             HashSet::new()
                         )
                     ),
-                    master_uri: Some(url)
+                    master_uri: Some(master_url)
                 }
             )
         );
-        // Create channels
-        let (stop_hb_tx, stop_hb_rx) = oneshot::channel::<()>();
-        let (_heartbeat_tx, heartbeat_rx) = mpsc::channel::<system::NetworkNeighbor>(100);
-        let heartbeat_kill_sw = Arc::new(
-            Mutex::new(
-                stop_hb_rx
-            )
-        );
 
-        // Setup timer for kill switch to end heartbeat loop
-        tokio::spawn(async move {
-            delay_for(Duration::from_secs(1)).await;
-            stop_hb_tx.send(()).unwrap();
-        });
         // Run test
-        super::send_heartbeats(machine_state, heartbeat_rx, heartbeat_kill_sw).await;
+        super::spawn_inner(machine_state);
     }
 }
