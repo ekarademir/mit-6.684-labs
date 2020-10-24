@@ -5,7 +5,7 @@ use hyper::{Body, Request};
 use serde::{Deserialize, Serialize};
 use serde_json;
 use log::{debug, info, error};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
 use crate::MachineState;
 use crate::tasks;
@@ -110,10 +110,6 @@ pub async fn heartbeat(
                     if let Err(e) = heartbeat_sender.send(neighbor).await {
                         error!("Error sending the heartbeat to the heartbeat thread: {}", e);
                     }
-
-                    // let hb = HeartbeatResponse {
-                    //     status: my_status
-                    // };
                     let hb  = Heartbeat {
                         status: my_status,
                         kind: my_kind,
@@ -164,50 +160,32 @@ pub async fn about(state: MachineState) -> String {
 
 pub async fn assign_task(
     req: Request<Body>,
-    state: MachineState,
-    mut task_sender: mpsc::Sender<tasks::TaskAssignment>
+    mut task_sender: mpsc::Sender<(
+        tasks::TaskAssignment,
+        oneshot::Sender<()>
+    )>
 ) -> String {
     debug!("/assign_task()");
     let mut task_assign_response: TaskAssignResponse = TaskAssignResponse {
         result: tasks::TaskStatus::Error,
     };
-    // In order to prevent hearbeat thread to signal Ready, immediately set state to Busy
-    {
-        if let Ok(mut state) = state.try_lock() {
-            match state.status {
-                Status::Ready => state.status = Status::Busy,
-                Status::Busy => {
-                    error!("Already running");
-                    task_assign_response.result = tasks::TaskStatus::Running;
-                    return serde_json::to_string(&task_assign_response).unwrap();
-                },
-                _ => {
-                    error!("Not ready to assign a task.");
-                    return ErrorResponse::request_problem(
-                        "Not ready to assign a task.".to_string()
-                    );
-                }
-            }
-        } else {
-            error!("Can't get state lock to set Busy");
-            return ErrorResponse::request_problem(
-                "Can't get state lock to set Busy".to_string()
-            );
-        }
-    }
-    // We set the state to Busy, now try sending the task to task channel
-    // Since there is only one master, we are not expecting competing task assignments
-    // We are also keeping master on-hold until we can parse the message and send it to
-    // the task runner
     match hyper::body::aggregate(req).await {
         Ok(body) => {
             match serde_json::from_reader::<_, tasks::TaskAssignment>(body.reader()) {
                 Ok(assignment) => {
                     info!("Task assignment received: {:?}", assignment.task);
+                    // Prep ack channel
+                    let (ack_tx, ack_rx) = oneshot::channel::<()>();
                     // Server can get online before task running thread can receive it
-                    if let Ok(_) = task_sender.try_send(assignment) {
-                        task_assign_response.result = tasks::TaskStatus::Queued;
-                        serde_json::to_string(&task_assign_response).unwrap()
+                    if let Ok(_) = task_sender.try_send((assignment, ack_tx)) {
+                        if let Ok(_) = ack_rx.await {
+                            task_assign_response.result = tasks::TaskStatus::Queued;
+                            serde_json::to_string(&task_assign_response).unwrap()
+                        } else {
+                            error!("Didn't receive assignment acknowledgement");
+                            task_assign_response.result = tasks::TaskStatus::CantAssign;
+                            serde_json::to_string(&task_assign_response).unwrap()
+                        }
                     } else {
                         error!("Can't send task to task");
                         task_assign_response.result = tasks::TaskStatus::CantAssign;
@@ -234,17 +212,8 @@ mod tests {
         // Uncomment for debugging
         // let _ = env_logger::try_init();
 
-        use std::collections::HashSet;
-        use std::net::SocketAddr;
-        use std::sync::{Arc, Mutex};
-        use std::time::{Duration, Instant};
-
-        use hyper::{Body, Request, Uri};
+        use hyper::{Body, Request};
         use tokio::sync::{mpsc, oneshot};
-
-        use crate::api::{endpoints, system};
-        use crate::api::network_neighbor::NetworkNeighbor;
-        use crate::Machine;
         use crate::tasks;
 
         let task_assignment = serde_json::json!(
@@ -262,55 +231,27 @@ mod tests {
             .body(task_assignment.to_string().into())
             .unwrap();
 
-        // Build Machine state
-        let master = NetworkNeighbor {
-            addr: "http://some.machine".to_string(),
-            kind: system::MachineKind::Master,
-            status: system::Status::NotReady,
-            last_heartbeat_ns: 0
-        };
-
-        let url = "http://some.machine".parse::<Uri>().unwrap();
-
-        let state = Arc::new(
-            Mutex::new(
-                Machine {
-                    kind: system::MachineKind::Worker,
-                    status: system::Status::Ready,
-                    socket: "0.0.0.0:3000".parse::<SocketAddr>().unwrap(),
-                    host: "http://test.com".to_string(),
-                    boot_instant: Instant::now(),
-                    master: Some(master),
-                    workers: Arc::new(
-                        Mutex::new(
-                            HashSet::new()
-                        )
-                    ),
-                    master_uri: Some(url)
-                }
-            )
-        );
-
         // Build comm channels
-        let (task_tx, mut task_rx) = mpsc::channel::<tasks::TaskAssignment>(100);
+        let (task_tx, mut task_rx) = mpsc::channel::<(
+            tasks::TaskAssignment,
+            oneshot::Sender<()>
+        )>(10);
 
         // Send task
-        let response = super::assign_task(req, state.clone(), task_tx.clone()).await;
-
-        let expected_response = serde_json::json!({
-            "result": "Queued"
+        tokio::spawn(async move {
+            let response = super::assign_task(req, task_tx.clone()).await;
+            let expected_response = serde_json::json!({
+                "result": "Queued"
+            });
+            // Check if task is queued
+            assert_eq!(response, serde_json::to_string(&expected_response).unwrap());
         });
 
-        // Assing task returns queued message
-        assert_eq!(response, serde_json::to_string(&expected_response).unwrap());
-        // Task is sent to channel
-        let assigned_task = task_rx.recv().await.unwrap();
+        // Check assigning task returns queued message
+        // Check if task is sent to channel
+        let (assigned_task, ack_tx) = task_rx.recv().await.unwrap();
         assert_eq!(serde_json::to_value(assigned_task).unwrap(), task_assignment);
-        // Machine state is set to busy
-        let status = {
-            let state = state.lock().unwrap();
-            state.status.clone()
-        };
-        assert_eq!(status, system::Status::Busy);
+        // Send acknowledgement to finish the return check.
+        ack_tx.send(()).unwrap();
     }
 }
