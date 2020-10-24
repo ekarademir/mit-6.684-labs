@@ -11,7 +11,11 @@ use crate::api;
 use crate::system;
 use crate::MachineState;
 
-pub fn spawn_server(state: MachineState, heartbeat_sender: mpsc::Sender<system::NetworkNeighbor>, kill_rx: oneshot::Receiver<()>) -> JoinHandle<()> {
+pub fn spawn_server(
+    state: MachineState,
+    heartbeat_sender: mpsc::Sender<system::NetworkNeighbor>,
+    kill_rx: oneshot::Receiver<()>
+) -> JoinHandle<()> {
     let main_state = state.clone();
     thread::Builder::new().name("Server".into()).spawn(|| {
         let mut rt = Runtime::new().unwrap();

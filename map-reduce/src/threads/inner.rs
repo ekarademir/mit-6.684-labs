@@ -6,6 +6,7 @@ use std::thread::{self, JoinHandle};
 use log::{debug, info, error, warn};
 use hyper::{Client, Uri, StatusCode};
 use tokio::runtime::Runtime;
+use tokio::sync::{mpsc, oneshot};
 
 use crate::api::{self, system};
 use crate::MachineState;
@@ -50,6 +51,32 @@ async fn wait_for_server(my_socket: SocketAddr) -> Result<(), ()>{
 
 async fn wait_for_master(master_uri: Uri) -> Result<(), ()>{
     probe_health(master_uri.host_port()).await
+}
+
+async fn wait_for_task(
+    state: MachineState,
+    mut task_funnel: mpsc::Receiver<(
+        tasks::TaskAssignment,
+        oneshot::Sender<bool>
+    )>
+) -> Result<(), ()> {
+    while let Some((task, ack_tx)) = task_funnel.recv().await {
+        {
+            if let Ok(mut state) = state.try_lock() {
+                state.status = system::Status::Busy;
+                ack_tx.send(true).unwrap();
+            } else {
+                ack_tx.send(false).unwrap();
+            }
+            // Execute
+            task.execute().await;
+            // Loop until we get the write lock to machine state
+            loop {
+
+            }
+        }
+    }
+    Ok(())
 }
 
 pub fn spawn_inner(state: MachineState) -> JoinHandle<()> {
@@ -112,27 +139,27 @@ pub fn spawn_inner(state: MachineState) -> JoinHandle<()> {
             }
             // Run tasks
             if my_kind == system::MachineKind::Master  {
-                let workers = {
-                    let state = main_state.lock().unwrap();
-                    state.workers.clone()
-                };
+                // let workers = {
+                //     let state = main_state.lock().unwrap();
+                //     state.workers.clone()
+                // };
 
-                let first_task = tasks::TaskAssignment {
-                    task: tasks::ATask::CountWords,
-                    input: tasks::TaskInput {
-                        machine_addr: "http://some.machine".to_string(),
-                        file: "some_file.txt".to_string(),
-                    },
-                };
+                // let first_task = tasks::TaskAssignment {
+                //     task: tasks::ATask::CountWords,
+                //     input: tasks::TaskInput {
+                //         machine_addr: "http://some.machine".to_string(),
+                //         file: "some_file.txt".to_string(),
+                //     },
+                // };
 
-                {
-                    for worker in workers.lock().unwrap().iter() {
-                        if let Ok(task_assign_response) = worker.assign_task(&first_task).await {
-                            debug!("{:?}", task_assign_response);
-                            break;
-                        }
-                    }
-                }
+                // {
+                //     for worker in workers.lock().unwrap().iter() {
+                //         if let Ok(task_assign_response) = worker.assign_task(&first_task).await {
+                //             debug!("{:?}", task_assign_response);
+                //             break;
+                //         }
+                //     }
+                // }
 
             } else { // Worker
                 // TODO task receiver will bereated by main
@@ -146,8 +173,48 @@ pub fn spawn_inner(state: MachineState) -> JoinHandle<()> {
 
 mod tests {
     #[tokio::test]
+    #[cfg_attr(feature = "dont_test_this", ignore)]
+    async fn test_wait_for_task_listens_until_channel_is_closed() {
+        // Uncomment for debugging
+        // let _ = env_logger::try_init();
+
+        use tokio::sync::{mpsc, oneshot};
+        use log::debug;
+
+        use crate::tasks;
+
+        let (task_tx, _) = mpsc::channel::<(
+            tasks::TaskAssignment,
+            oneshot::Sender<bool>,
+        )>(10);
+
+        let task_asignment = tasks::TaskAssignment {
+            task: tasks::ATask::CountWords,
+            input: tasks::TaskInput {
+                machine_addr: "http://other_worker.machine".to_string(),
+                file: "/some/file".to_string(),
+            }
+        };
+
+        // Run test
+        tokio::spawn(async move {
+            // Do this several times to test if task receiver stopped or not.
+            for _ in 0..3 {
+                let (ack_tx, ack_rx) = oneshot::channel::<bool>();
+                if let Ok(_) = task_tx.clone().send((task_asignment.clone(), ack_tx)).await {
+                    debug!("Task sent");
+                    assert!(ack_rx.await.unwrap());
+                    debug!("Ack received");
+                } else {
+                    // Shouldn't reach here
+                    assert!(false);
+                }
+            }
+        });
+    }
+    #[tokio::test]
     // #[cfg_attr(feature = "dont_test_this", ignore)]
-    async fn test_receive_task() {
+    async fn test_wait_for_task() {
         // Uncomment for debugging
         let _ = env_logger::try_init();
 
@@ -156,50 +223,20 @@ mod tests {
         use std::sync::{Arc, Mutex};
         use std::time::{Duration, Instant};
 
-        use httptest::{Server, Expectation, matchers::*, responders::*};
+        use httptest::{Server, ServerPool, Expectation, matchers::*, responders::*};
         use tokio::sync::{mpsc, oneshot};
-        use tokio::time::delay_for;
+        use hyper::Uri;
+        use log::debug;
 
         use crate::api::{endpoints, system};
         use crate::api::network_neighbor::NetworkNeighbor;
         use crate::Machine;
+        use crate::tasks;
 
-        let health_response = serde_json::json!(
-            {
-                "some": "Response"
-            }
-        );
 
         // Set up a worker machine that starts listening to tasks
         // Set up the http server to send I'm up message from server thread
-        let server_thread = Server::run();
-        server_thread.expect(
-            Expectation::matching(all_of![
-                request::method_path("GET", endpoints::HEALTH)
-            ])
-            .times(1..)
-            .respond_with(
-                json_encoded(health_response.clone()
-            )),
-        );
-        let host = server_thread.url("/");
-        let socket = host.clone()
-                        .into_parts()
-                        .authority.unwrap()
-                        .as_str().parse::<SocketAddr>().unwrap();
-
-        // Setup master server to so that this worker is ready
-        let master = Server::run();
-        master.expect(
-            Expectation::matching(all_of![
-                request::method_path("GET", endpoints::HEALTH)
-            ])
-            .times(1..)
-            .respond_with(
-                json_encoded(health_response.clone()
-            )),
-        );
-        let master_url = server_thread.url("/");
+        let master_url = "http://master.machine".parse::<Uri>().unwrap();
         let master = NetworkNeighbor {
             addr: master_url.to_string(),
             kind: system::MachineKind::Master,
@@ -212,8 +249,8 @@ mod tests {
                 Machine {
                     kind: system::MachineKind::Worker,
                     status: system::Status::NotReady,
-                    socket,
-                    host: host.to_string(),
+                    socket: "0.0.0.0:1234".parse::<SocketAddr>().unwrap(),
+                    host: "http://worker.machine".to_string(),
                     boot_instant: Instant::now(),
                     master: Some(master),
                     workers: Arc::new(
@@ -226,7 +263,37 @@ mod tests {
             )
         );
 
+        let (task_tx, task_rx) = mpsc::channel::<(
+            tasks::TaskAssignment,
+            oneshot::Sender<bool>,
+        )>(10);
+
+        let task_asignment = tasks::TaskAssignment {
+            task: tasks::ATask::CountWords,
+            input: tasks::TaskInput {
+                machine_addr: "http://other_worker.machine".to_string(),
+                file: "/some/file".to_string(),
+            }
+        };
+
         // Run test
-        super::spawn_inner(machine_state);
+        tokio::spawn(async move {
+            let (ack_tx, ack_rx) = oneshot::channel::<bool>();
+            if let Ok(_) = task_tx.clone().send((task_asignment.clone(), ack_tx)).await {
+                debug!("Task sent");
+                assert!(ack_rx.await.unwrap());
+                debug!("Ack received");
+            } else {
+                // Shouldn't reach here
+                assert!(false);
+            }
+        });
+        let result = super::wait_for_task(machine_state.clone(), task_rx).await;
+        {
+            let state = machine_state.lock().unwrap();
+            assert_eq!(state.status, system::Status::Busy);
+        }
+
+        assert_eq!(result, Ok(()));
     }
 }

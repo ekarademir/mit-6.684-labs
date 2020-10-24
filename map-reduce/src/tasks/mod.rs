@@ -1,7 +1,4 @@
-use std::future::Future;
-use std::pin::Pin;
-use std::task::{Context, Poll};
-
+use log::debug;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -15,45 +12,36 @@ pub enum TaskStatus {
     CantAssign,
 }
 
-pub struct CompletedTask {
-    key: String,
-    value: String,
-}
-
-#[derive(PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct TaskInput {
     pub machine_addr: String,
     pub file: String,
 }
 
-pub enum TaskError {
-    SomeError,
-}
-
-type FutureTask = Pin<Box<dyn Future<Output = Result<CompletedTask, TaskError>> + Send>>;
-
-pub trait MapReduceTask {
-    fn execute(&self) -> FutureTask;
-}
-
-#[derive(PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct TaskAssignment {
     pub task: ATask,
     pub input: TaskInput,
 }
 
-// impl MapReduceTask for CountWords {
-//     fn execute(&self) -> FutureTask {
-//         Box::pin(async {
-//             Ok(CompletedTask {
-//                 key: "SomeKey".to_string(),
-//                 value: "Some Value".to_string()
-//             })
-//         })
-//     }
-// }
+// TODO Probably a macro to register a task which,
+//    * Copies the function
+//      * Either converts function_case to CamelCase or gets also ATask name
+//    * Adds an entry in the match assignment
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Hash, Eq, PartialEq, Serialize, Deserialize)]
 pub enum ATask {
     CountWords,
+}
+
+impl TaskAssignment {
+    pub async fn execute(&self) {
+        match self.task {
+            ATask::CountWords => count_words().await
+        }
+    }
+}
+
+pub async fn count_words() {
+    debug!("Counting words!!!!");
 }

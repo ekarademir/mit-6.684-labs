@@ -162,7 +162,7 @@ pub async fn assign_task(
     req: Request<Body>,
     mut task_sender: mpsc::Sender<(
         tasks::TaskAssignment,
-        oneshot::Sender<()>
+        oneshot::Sender<bool>
     )>
 ) -> String {
     debug!("/assign_task()");
@@ -175,10 +175,10 @@ pub async fn assign_task(
                 Ok(assignment) => {
                     info!("Task assignment received: {:?}", assignment.task);
                     // Prep ack channel
-                    let (ack_tx, ack_rx) = oneshot::channel::<()>();
+                    let (ack_tx, ack_rx) = oneshot::channel::<bool>();
                     // Server can get online before task running thread can receive it
                     if let Ok(_) = task_sender.try_send((assignment, ack_tx)) {
-                        if let Ok(_) = ack_rx.await {
+                        if let Ok(true) = ack_rx.await {
                             task_assign_response.result = tasks::TaskStatus::Queued;
                             serde_json::to_string(&task_assign_response).unwrap()
                         } else {
@@ -234,7 +234,7 @@ mod tests {
         // Build comm channels
         let (task_tx, mut task_rx) = mpsc::channel::<(
             tasks::TaskAssignment,
-            oneshot::Sender<()>
+            oneshot::Sender<bool>
         )>(10);
 
         // Send task
@@ -252,6 +252,6 @@ mod tests {
         let (assigned_task, ack_tx) = task_rx.recv().await.unwrap();
         assert_eq!(serde_json::to_value(assigned_task).unwrap(), task_assignment);
         // Send acknowledgement to finish the return check.
-        ack_tx.send(()).unwrap();
+        ack_tx.send(true).unwrap();
     }
 }
