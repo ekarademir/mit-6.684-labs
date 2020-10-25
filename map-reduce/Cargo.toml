@@ -21,7 +21,7 @@ env_logger = "0.7.1"
 futures = "0.3.5"
 hyper = "0.13.8"
 log = { version = "0.4.11", features = ["release_max_level_debug"] }
-# log4rs = "0.13.0"
+petgraph = "0.5.1"
 serde = { version = "1.0.116", features = ["derive"] }
 serde_json = "1.0.57"
 tokio = { version = "0.2.22", features = ["full"] }

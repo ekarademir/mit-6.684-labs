@@ -1,4 +1,5 @@
 pub mod task_assignment;
+pub mod pipeline;
 
 use serde::{Deserialize, Serialize};
 
