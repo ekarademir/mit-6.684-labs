@@ -92,6 +92,8 @@ async fn wait_for_task(
 
 async fn run_pipeline(state: MachineState) {
     // TODO (Optional) Implement a minimum worker threashold
+    // TODO This needs refactoring and rethinking. Pipeline must be defined by Tasks module.
+    //          Hence tasks are iterated from pipeline.
     let workers = {
         let state = state.lock().unwrap();
         state.workers.clone()

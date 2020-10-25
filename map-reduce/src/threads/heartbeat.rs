@@ -8,7 +8,7 @@ use tokio::sync::mpsc;
 use crate::{MachineState, HeartbeatKillSwitch};
 use crate::system;
 
-const SLEEP_DURATION_SEC:u64 = 5;
+const WAIT_DURATION:Duration = Duration::from_secs(10);
 const NEIGHTBOR_DROP_THRESHOLD:u128 = 5_000_000_000; // ns
 
 
@@ -17,7 +17,6 @@ async fn send_heartbeats(
     mut heartbeat_receiver: mpsc::Receiver<system::NetworkNeighbor>,
     kill_rx: HeartbeatKillSwitch,
 ) {
-    let wait_duration = Duration::from_secs(SLEEP_DURATION_SEC);
 
     loop {
         let (
@@ -119,7 +118,7 @@ async fn send_heartbeats(
                 warn!("No master is defined yet. Sleeping.");
             }
         }
-        thread::sleep(wait_duration);
+        thread::sleep(WAIT_DURATION);
     }
 }
 
