@@ -15,7 +15,7 @@ use crate::tasks;
 
 const RETRY_TIMES:usize = 4;
 const BOOT_WAIT_DURATION: Duration = Duration::from_secs(2);
-const LOCK_WAIT_DURATION: Duration = Duration::from_millis(2);
+const LOCK_WAIT_DURATION: Duration = Duration::from_secs(5);
 
 async fn probe_health <T: Display>(addr: T) -> Result<(), ()> {
     let client = Client::new();
@@ -59,23 +59,30 @@ async fn wait_for_task(
         oneshot::Sender<bool>
     )>
 ) {
+    info!("Waiting for tasks");
     while let Some((task, ack_tx)) = task_funnel.recv().await {
         {
+            debug!("Received task {:?}, setting myself Busy", task.task);
             if let Ok(mut state) = state.try_lock() {
                 state.status = system::Status::Busy;
                 ack_tx.send(true).unwrap();
             } else {
                 ack_tx.send(false).unwrap();
             }
-            // Execute
+            info!("Starting execution of {:?}, with input {:?}", task.task, task.input);
             task.execute().await;
+            info!("Finished execution of {:?}, with input {:?}", task.task, task.input);
             // Loop until we get the write lock to machine state
+            debug!("Finished task {:?}, setting myself Ready", task.task);
             loop {
+                debug!("Trying to get write lock on MachineState");
                 if let Ok(mut state) = state.try_lock() {
-                    // Switch back to ready
+                    debug!("Acquired write lock on MachineState");
                     state.status = system::Status::Ready;
+                    debug!("Machine set to Ready");
                     break;
                 } else {
+                    debug!("Couldn't acquire write lock waiting {:?}", LOCK_WAIT_DURATION);
                     thread::sleep(LOCK_WAIT_DURATION);
                 }
             }
@@ -83,7 +90,64 @@ async fn wait_for_task(
     }
 }
 
-pub fn spawn_inner(state: MachineState) -> JoinHandle<()> {
+async fn run_pipeline(state: MachineState) {
+    let workers = {
+        let state = state.lock().unwrap();
+        state.workers.clone()
+    };
+
+    let first_task = tasks::TaskAssignment {
+        task: tasks::ATask::CountWords,
+        input: tasks::TaskInput {
+            machine_addr: "http://some.machine".to_string(),
+            file: "some_file.txt".to_string(),
+        },
+    };
+
+    {
+        debug!("Assigning tasks to workers");
+        loop {
+            debug!("Trying to get read lock on Workers list");
+            if let Ok(workers) = workers.try_lock() {
+                debug!("Acquired read lock on Workers");
+                if workers.len() > 0 {
+                    debug!("There are workers registered.");
+                    let mut task_assigned = false;
+                    for worker in workers.iter() {
+                        debug!("Assigning {:?} to {:?}", first_task.task, worker.addr);
+                        if let Ok(task_assign_response) = worker.assign_task(&first_task).await {
+                            debug!("TASK ASSIGN RESPONSE {:?}", task_assign_response);
+                            task_assigned = true;
+                            break;
+                        } else {
+                            warn!("Couldn't assign task to worker {:?}, skipping.", worker.addr);
+                        }
+                    }
+                    if task_assigned {
+                        debug!("Task assigned. Finishing the calculation");
+                        break;
+                    } else {
+                        warn!("Couldn't assign the task yet.");
+                    }
+                } else {
+                    warn!("No workers registered yet to run tasks.");
+                }
+            } else {
+                debug!("Couldn't acquire read lock on workers");
+            }
+            debug!("Waiting {:?}", LOCK_WAIT_DURATION);
+            thread::sleep(LOCK_WAIT_DURATION);
+        }
+    }
+}
+
+pub fn spawn_inner(
+    state: MachineState,
+    task_funnel: mpsc::Receiver<(
+        tasks::TaskAssignment,
+        oneshot::Sender<bool>
+    )>
+) -> JoinHandle<()> {
     let main_state = state.clone();
     thread::Builder::new().name("Inner".into()).spawn(|| {
         let mut rt = Runtime::new().unwrap();
@@ -143,33 +207,9 @@ pub fn spawn_inner(state: MachineState) -> JoinHandle<()> {
             }
             // Run tasks
             if my_kind == system::MachineKind::Master  {
-                // let workers = {
-                //     let state = main_state.lock().unwrap();
-                //     state.workers.clone()
-                // };
-
-                // let first_task = tasks::TaskAssignment {
-                //     task: tasks::ATask::CountWords,
-                //     input: tasks::TaskInput {
-                //         machine_addr: "http://some.machine".to_string(),
-                //         file: "some_file.txt".to_string(),
-                //     },
-                // };
-
-                // {
-                //     for worker in workers.lock().unwrap().iter() {
-                //         if let Ok(task_assign_response) = worker.assign_task(&first_task).await {
-                //             debug!("{:?}", task_assign_response);
-                //             break;
-                //         }
-                //     }
-                // }
-
+                run_pipeline(state).await;
             } else { // Worker
-                // TODO task receiver will bereated by main
-                // thread and will not be dropped until main thread is done hence we can
-                // listen to it via `while let`
-                // Panic to stop execution? or dont' panic at all.
+                wait_for_task(state, task_funnel).await;
             }
         });
     }).unwrap()

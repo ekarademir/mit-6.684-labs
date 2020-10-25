@@ -12,7 +12,7 @@ pub enum TaskStatus {
     CantAssign,
 }
 
-#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TaskInput {
     pub machine_addr: String,
     pub file: String,

@@ -10,10 +10,15 @@ use tokio::sync::{mpsc, oneshot};
 use crate::api;
 use crate::system;
 use crate::MachineState;
+use crate::tasks;
 
 pub fn spawn_server(
     state: MachineState,
     heartbeat_sender: mpsc::Sender<system::NetworkNeighbor>,
+    task_sender: mpsc::Sender<(
+        tasks::TaskAssignment,
+        oneshot::Sender<bool>
+    )>,
     kill_rx: oneshot::Receiver<()>
 ) -> JoinHandle<()> {
     let main_state = state.clone();
@@ -34,6 +39,7 @@ pub fn spawn_server(
                     .serve(api::MakeMainService {
                         state: main_state,
                         heartbeat_sender,
+                        task_sender,
                     })
                     .with_graceful_shutdown(async {
                         select! {

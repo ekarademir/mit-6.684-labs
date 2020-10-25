@@ -9,9 +9,10 @@ use std::task::{Context, Poll};
 use hyper::{Body, Method, Request, Response, StatusCode};
 use hyper::header;
 use hyper::service::Service;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
 use crate::MachineState;
+use crate::tasks;
 
 fn json_response(json: String, status: Option<StatusCode>) -> Response<Body> {
     let status = if let Some(code) = status {
@@ -29,6 +30,10 @@ fn json_response(json: String, status: Option<StatusCode>) -> Response<Body> {
 pub struct MainService {
     state: MachineState,
     heartbeat_sender: mpsc::Sender<system::NetworkNeighbor>,
+    pub task_sender: mpsc::Sender<(
+        tasks::TaskAssignment,
+        oneshot::Sender<bool>
+    )>
 }
 
 impl Service<Request<Body>> for MainService {
@@ -50,6 +55,7 @@ impl Service<Request<Body>> for MainService {
         }
         let state = self.state.clone();
         let heartbeat_sender = self.heartbeat_sender.clone();
+        let task_sender = self.task_sender.clone();
         Box::pin(async move {
             let result = match (req.method(), req.uri().path()) {
                 (&Method::GET, endpoints::HEALTH) => make_result(
@@ -62,6 +68,10 @@ impl Service<Request<Body>> for MainService {
                 ),
                 (&Method::POST, endpoints::HEARTBEAT) => make_result(
                     system::heartbeat(req, state, heartbeat_sender).await,
+                    Some(StatusCode::OK)
+                ),
+                (&Method::POST, endpoints::ASSIGN_TASK) => make_result(
+                    system::assign_task(req, task_sender).await,
                     Some(StatusCode::OK)
                 ),
                 (_, the_path) => make_result(
@@ -77,6 +87,10 @@ impl Service<Request<Body>> for MainService {
 pub struct MakeMainService {
     pub state: MachineState,
     pub heartbeat_sender: mpsc::Sender<system::NetworkNeighbor>,
+    pub task_sender: mpsc::Sender<(
+        tasks::TaskAssignment,
+        oneshot::Sender<bool>
+    )>
 }
 
 impl<T> Service<T> for MakeMainService {
@@ -92,6 +106,7 @@ impl<T> Service<T> for MakeMainService {
         let main_svc = MainService {
             state: self.state.clone(),
             heartbeat_sender: self.heartbeat_sender.clone(),
+            task_sender: self.task_sender.clone(),
         };
         let fut = async move { Ok(main_svc) };
         Box::pin(fut)

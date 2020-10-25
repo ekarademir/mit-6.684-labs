@@ -137,7 +137,10 @@ fn main() {
     // Heartbeat funnel
     let (heartbeat_tx, heartbeat_rx) = mpsc::channel::<system::NetworkNeighbor>(100);
     // Task funnel
-    let (task_tx, task_rx) = mpsc::channel::<tasks::TaskAssignment>(100);
+    let (task_tx, task_rx) = mpsc::channel::<(
+        tasks::TaskAssignment,
+        oneshot::Sender<bool>
+    )>(100);
 
     let heartbeat_kill_sw: HeartbeatKillSwitch = Arc::new(
         Mutex::new(
@@ -145,8 +148,8 @@ fn main() {
         )
     );
 
-    let server_thread = threads::spawn_server(me.clone(), heartbeat_tx, kill_rx);
-    let inner_thread = threads::spawn_inner(me.clone());
+    let server_thread = threads::spawn_server(me.clone(), heartbeat_tx, task_tx, kill_rx);
+    let inner_thread = threads::spawn_inner(me.clone(), task_rx);
     let heartbeat_thread = threads::spawn_heartbeat(me.clone(), heartbeat_rx, heartbeat_kill_sw);
 
     if let Err(_) = inner_thread.join() {
