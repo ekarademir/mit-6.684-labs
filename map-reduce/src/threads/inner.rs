@@ -91,6 +91,7 @@ async fn wait_for_task(
 }
 
 async fn run_pipeline(state: MachineState) {
+    // TODO (Optional) Implement a minimum worker threashold
     let workers = {
         let state = state.lock().unwrap();
         state.workers.clone()
