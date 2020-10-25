@@ -14,8 +14,8 @@ use crate::HostPort;
 use crate::tasks;
 
 const RETRY_TIMES:usize = 4;
-const BOOT_WAIT_DURATION: Duration = Duration::from_secs(2);
-const LOCK_WAIT_DURATION: Duration = Duration::from_secs(5);
+const BOOT_WAIT_DURATION: Duration = Duration::from_millis(200);
+const LOCK_WAIT_DURATION: Duration = Duration::from_millis(500);
 
 async fn probe_health <T: Display>(addr: T) -> Result<(), ()> {
     let client = Client::new();
