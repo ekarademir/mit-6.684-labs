@@ -13,8 +13,9 @@ use crate::MachineState;
 use crate::HostPort;
 use crate::tasks;
 
-const SLEEP_DURATION_SEC:u64 = 2;
 const RETRY_TIMES:usize = 4;
+const BOOT_WAIT_DURATION: Duration = Duration::from_secs(2);
+const LOCK_WAIT_DURATION: Duration = Duration::from_millis(2);
 
 async fn probe_health <T: Display>(addr: T) -> Result<(), ()> {
     let client = Client::new();
@@ -22,8 +23,6 @@ async fn probe_health <T: Display>(addr: T) -> Result<(), ()> {
         addr,
         api::endpoints::HEALTH
     ).parse::<Uri>().unwrap();
-
-    let wait_duration = Duration::from_secs(SLEEP_DURATION_SEC);
 
     for retry in 1..RETRY_TIMES+1 {
         info!("Probing to server {}. Trial {} of {}", probe_addr, retry, RETRY_TIMES);
@@ -39,7 +38,7 @@ async fn probe_health <T: Display>(addr: T) -> Result<(), ()> {
             },
             _ => warn!("Server did not respond, will try again.")
         }
-        thread::sleep(wait_duration);
+        thread::sleep(BOOT_WAIT_DURATION);
     }
     error!("Giving up on server wait.");
     Err(())
@@ -59,7 +58,7 @@ async fn wait_for_task(
         tasks::TaskAssignment,
         oneshot::Sender<bool>
     )>
-) -> Result<(), ()> {
+) {
     while let Some((task, ack_tx)) = task_funnel.recv().await {
         {
             if let Ok(mut state) = state.try_lock() {
@@ -72,11 +71,16 @@ async fn wait_for_task(
             task.execute().await;
             // Loop until we get the write lock to machine state
             loop {
-
+                if let Ok(mut state) = state.try_lock() {
+                    // Switch back to ready
+                    state.status = system::Status::Ready;
+                    break;
+                } else {
+                    thread::sleep(LOCK_WAIT_DURATION);
+                }
             }
         }
     }
-    Ok(())
 }
 
 pub fn spawn_inner(state: MachineState) -> JoinHandle<()> {
@@ -213,22 +217,21 @@ mod tests {
         });
     }
     #[tokio::test]
-    // #[cfg_attr(feature = "dont_test_this", ignore)]
+    #[cfg_attr(feature = "dont_test_this", ignore)]
     async fn test_wait_for_task() {
         // Uncomment for debugging
-        let _ = env_logger::try_init();
+        // let _ = env_logger::try_init();
 
         use std::collections::HashSet;
         use std::net::SocketAddr;
         use std::sync::{Arc, Mutex};
-        use std::time::{Duration, Instant};
+        use std::time::Instant;
 
-        use httptest::{Server, ServerPool, Expectation, matchers::*, responders::*};
         use tokio::sync::{mpsc, oneshot};
         use hyper::Uri;
         use log::debug;
 
-        use crate::api::{endpoints, system};
+        use crate::api::system;
         use crate::api::network_neighbor::NetworkNeighbor;
         use crate::Machine;
         use crate::tasks;
@@ -288,12 +291,12 @@ mod tests {
                 assert!(false);
             }
         });
-        let result = super::wait_for_task(machine_state.clone(), task_rx).await;
+        // Kick off
+        super::wait_for_task(machine_state.clone(), task_rx).await;
         {
             let state = machine_state.lock().unwrap();
-            assert_eq!(state.status, system::Status::Busy);
+            // Check if the machine state is back to Ready after running the task.
+            assert_eq!(state.status, system::Status::Ready);
         }
-
-        assert_eq!(result, Ok(()));
     }
 }
