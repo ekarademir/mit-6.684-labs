@@ -1,4 +1,4 @@
-FROM rust:1.46-buster as builder
+FROM rust:1.47-buster as builder
 WORKDIR /usr/src
 RUN USER=root cargo new --bin map-reduce
 WORKDIR /usr/src/map-reduce
