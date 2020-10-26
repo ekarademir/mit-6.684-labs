@@ -7,9 +7,10 @@ pub struct TaskInput {
     pub file: String,
 }
 
-#[derive(Clone, Debug, Hash, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Serialize, Deserialize)]
 pub enum ATask {
     CountWords,
+    SumCounts,
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
@@ -27,11 +28,16 @@ pub struct TaskAssignment {
 impl TaskAssignment {
     pub async fn execute(&self) {
         match self.task {
-            ATask::CountWords => count_words().await
+            ATask::CountWords => count_words().await,
+            ATask::SumCounts => sum_counts().await,
         }
     }
 }
 
 async fn count_words() {
     debug!("Counting words!!!!");
+}
+
+async fn sum_counts() {
+    debug!("Total Count!!!!");
 }

@@ -1,13 +1,35 @@
 use std::iter::IntoIterator;
 
-use petgraph::{self, visit};
+use petgraph::{
+  self,
+  graph,
+  visit,
+};
 
 use super::task_assignment::ATask;
 
-pub type TaskGraph = petgraph::Graph<ATask, (), petgraph::Directed>;
+type TaskGraph = petgraph::Graph<ATask, (), petgraph::Directed>;
+type TaskNode = graph::NodeIndex;
 
 pub struct Pipeline {
-  pub task_graph: TaskGraph,
+  inner: TaskGraph,
+}
+
+impl Pipeline {
+  pub fn new() -> Self {
+    let inner = TaskGraph::new();
+    Pipeline {
+      inner
+    }
+  }
+
+  pub fn add_task(&mut self, task: ATask) -> TaskNode {
+    self.inner.add_node(task)
+  }
+
+  pub fn add_order(&mut self, from: TaskNode, to: TaskNode) {
+    self.inner.add_edge(from, to, ());
+  }
 }
 
 impl IntoIterator for Pipeline {
@@ -17,8 +39,33 @@ impl IntoIterator for Pipeline {
   fn into_iter(self) -> Self::IntoIter {
       let mut linear: Vec<ATask> = Vec::new();
 
-      // TODO Create a linearizarion of graph, Breadth first visit
+      let mut topological_sort = visit::Topo::new(&self.inner);
+      while let Some(node_idx) = topological_sort.next(&self.inner) {
+        linear.push(self.inner[node_idx]);
+      }
 
       linear.into_iter()
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  #[test]
+  #[cfg_attr(feature = "dont_test_this", ignore)]
+  fn test_linear_dag() {
+    let mut task_pipeline = super::Pipeline::new();
+    let count_words = task_pipeline.add_task(super::ATask::CountWords);
+    let sum_counts = task_pipeline.add_task(super::ATask::SumCounts);
+
+    task_pipeline.add_order(count_words, sum_counts);
+
+    let expected = vec![
+      super::ATask::CountWords,
+      super::ATask::SumCounts
+    ];
+
+    for (idx, task) in task_pipeline.into_iter().enumerate() {
+      assert_eq!(expected[idx], task);
+    }
   }
 }
