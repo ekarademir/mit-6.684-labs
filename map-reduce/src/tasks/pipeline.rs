@@ -1,4 +1,5 @@
 use std::iter::IntoIterator;
+use std::collections::VecDeque;
 
 use petgraph::{
   self,
@@ -6,20 +7,30 @@ use petgraph::{
   visit,
 };
 
-use super::task_assignment::ATask;
+use super::task_assignment::{
+  ATask,
+  TaskAssignment,
+};
 
 type TaskGraph = petgraph::Graph<ATask, (), petgraph::Directed>;
 type TaskNode = graph::NodeIndex;
 
 pub struct Pipeline {
   inner: TaskGraph,
+  assignments: VecDeque<TaskAssignment>, // We might need to put this behind a RwLock
 }
+
+// TODO Pipeline will hold the addresses of files and keys etc.
+// TODO Pipeline will have a run method called by the inner thread.
+// TODO Next should return the next Task Assignment with the Task and where to find the input
 
 impl Pipeline {
   pub fn new() -> Self {
     let inner = TaskGraph::new();
+    let assignments = VecDeque::new();
     Pipeline {
-      inner
+      inner,
+      assignments,
     }
   }
 
@@ -29,6 +40,23 @@ impl Pipeline {
 
   pub fn add_order(&mut self, from: TaskNode, to: TaskNode) {
     self.inner.add_edge(from, to, ());
+  }
+
+  pub fn next() -> TaskAssignment {
+    // Return the next item in assignment queue
+    unimplemented!()
+  }
+
+  pub fn finished_task() {
+    unimplemented!()
+  }
+
+  pub fn init() {
+    // Lock adding stuff
+    // Get topolist of tasks
+    // Populate assignments for the first task
+    //  Files for the first one probably should be acquired from the master
+    unimplemented!()
   }
 }
 
