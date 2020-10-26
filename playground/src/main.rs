@@ -12,14 +12,20 @@ fn main() {
     let el_1_1 = my_graph.add_node("level_1_1");
     let edge_01_0 = my_graph.add_edge(el_0, el_1_0, ());
     let edge_01_1 = my_graph.add_edge(el_0, el_1_1, ());
+    // let cycle = my_graph.add_edge(el_1_0, el_0, ());
     let el_2 = my_graph.add_node("level_2");
     let edge_21_0 = my_graph.add_edge(el_1_0, el_2, ());
     let edge_21_1 = my_graph.add_edge(el_1_1, el_2, ());
 
     println!("{:?}", my_graph);
 
-    let mut bfs = visit::Bfs::new(&my_graph, el_0);
-    while let Some(node_idx) = bfs.next(&my_graph) {
+    // let mut bfs = visit::Bfs::new(&my_graph, el_0);
+    // while let Some(node_idx) = bfs.next(&my_graph) {
+    //     println!("{:?}", my_graph[node_idx]);
+    // }
+
+    let mut topo = visit::Topo::new(&my_graph);
+    while let Some(node_idx) = topo.next(&my_graph) {
         println!("{:?}", my_graph[node_idx]);
     }
 }
