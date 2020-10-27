@@ -1,5 +1,6 @@
 use std::iter::IntoIterator;
-use std::collections::VecDeque;
+use std::collections::{VecDeque, HashMap};
+use std::time::Instant;
 
 use petgraph::{
   self,
@@ -10,10 +11,19 @@ use petgraph::{
 use super::task_assignment::{
   ATask,
   TaskAssignment,
+  TaskInput,
+  TaskInputs
 };
+
+enum AssignmentStatus {
+  Assigned(Instant),
+  Finished
+}
 
 type TaskGraph = petgraph::Graph<ATask, (), petgraph::Directed>;
 type TaskNode = graph::NodeIndex;
+type KeyStore = HashMap<String, HashMap<TaskInput, AssignmentStatus>>; // Values are task inputs to status of task
+type TaskStore = HashMap<TaskNode, KeyStore>;
 
 pub struct TaskRun {
   task_assignment: TaskAssignment,
@@ -22,20 +32,17 @@ pub struct TaskRun {
 
 pub struct Pipeline {
   inner: TaskGraph,
-  assignments: VecDeque<TaskAssignment>, // We might need to put this behind a RwLock
+  store: TaskStore, // We might need to put this behind a RwLock
 }
 
-// TODO Pipeline will hold the addresses of files and keys etc.
-// TODO Pipeline will have a run method called by the inner thread.
-// TODO Next should return the next Task Assignment with the Task and where to find the input
 
 impl Pipeline {
   pub fn new() -> Self {
     let inner = TaskGraph::new();
-    let assignments = VecDeque::new();
+    let store = TaskStore::new();
     Pipeline {
       inner,
-      assignments,
+      store,
     }
   }
 
@@ -43,28 +50,35 @@ impl Pipeline {
     self.inner.add_node(task)
   }
 
-  pub fn add_order(&mut self, from: TaskNode, to: TaskNode) {
+  pub fn order_tasks(&mut self, from: TaskNode, to: TaskNode) {
+    // TODO catch cyclic ordering and maybe throw error
     self.inner.add_edge(from, to, ());
   }
 
-  pub fn next() -> TaskAssignment {
+  pub fn finished_task(&mut self, task_id: TaskNode, key: String, result: TaskInput) {
+    // find the tasknode and marking the task input done
+    // Then add the taskinput as undone to the next level of tasks
+    unimplemented!();
+  }
+
+  pub async fn next() -> Option<TaskAssignment> {
     // Return the next item in assignment queue
+    // Scan the store get the next unfinished task input
+    //    If passed tolerated amount of time assign again
+    // If all the task input of the last level are finished then we are done so return None
     unimplemented!()
   }
 
-  pub fn finished_task() {
-    unimplemented!()
-  }
-
-  pub fn init() {
+  pub fn init(&mut self, pipeline_inputs: TaskInputs) {
     // Lock adding stuff
-    // Get topolist of tasks
-    // Populate assignments for the first task
     //  Files for the first one probably should be acquired from the master
+    // Insert inputs to task store with the first line of tasks in the graph
     unimplemented!()
   }
 }
 
+// TODO this is probably unnecessary
+// TODO tests are good fur multi level stuff but order is not important
 impl IntoIterator for Pipeline {
   type Item = ATask;
   type IntoIter = std::vec::IntoIter<Self::Item>;
@@ -89,7 +103,7 @@ mod tests {
     let count_words = task_pipeline.add_task(super::ATask::CountWords);
     let sum_counts = task_pipeline.add_task(super::ATask::SumCounts);
 
-    task_pipeline.add_order(count_words, sum_counts);
+    task_pipeline.order_tasks(count_words, sum_counts);
 
     // count_words -> sum_counts
 
@@ -110,8 +124,8 @@ mod tests {
     let count_words = task_pipeline.add_task(super::ATask::CountWords);
     let sum_counts = task_pipeline.add_task(super::ATask::SumCounts);
 
-    task_pipeline.add_order(count_words, sum_counts);
-    task_pipeline.add_order(sum_counts, count_words);
+    task_pipeline.order_tasks(count_words, sum_counts);
+    task_pipeline.order_tasks(sum_counts, count_words);
 
     // count_words -> sum_counts
     //            \__/
@@ -131,9 +145,9 @@ mod tests {
     let count_words2 = task_pipeline.add_task(super::ATask::CountWords);
     let sum_counts2 = task_pipeline.add_task(super::ATask::SumCounts);
 
-    task_pipeline.add_order(sum_counts1, sum_counts2);
-    task_pipeline.add_order(count_words1, sum_counts2);
-    task_pipeline.add_order(sum_counts2, count_words2);
+    task_pipeline.order_tasks(sum_counts1, sum_counts2);
+    task_pipeline.order_tasks(count_words1, sum_counts2);
+    task_pipeline.order_tasks(sum_counts2, count_words2);
 
     // sum_counts1 \
     //              |-> sum_counts2 -> count_words2
