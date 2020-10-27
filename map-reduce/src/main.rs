@@ -6,7 +6,7 @@ mod tasks;
 use std::collections::HashSet;
 use std::env;
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::Instant;
 
 use env_logger;
@@ -20,7 +20,7 @@ const DEFAULT_SOCKET: &str = "0.0.0.0:3000";
 
 // TODO All this locks can be RwLocks
 type MachineState = Arc<Mutex<Machine>>;
-type Workers = Arc<Mutex<HashSet<system::NetworkNeighbor>>>;
+type Workers = Arc<RwLock<HashSet<system::NetworkNeighbor>>>;
 type HeartbeatKillSwitch = Arc<Mutex<oneshot::Receiver<()>>>;
 
 pub trait HostPort {
@@ -101,7 +101,7 @@ impl Machine {
         };
 
         let workers = Arc::new(
-            Mutex::new(
+            RwLock::new(
                 HashSet::new()
             )
         );

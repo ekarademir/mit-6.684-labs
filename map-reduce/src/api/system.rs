@@ -142,7 +142,7 @@ pub async fn about(state: MachineState) -> String {
         if let Some(master) = &machine_state.master {
             network.push(master.clone())
         }
-        machine_state.workers.lock().unwrap().iter().for_each(|worker| {
+        machine_state.workers.read().unwrap().iter().for_each(|worker| {
             network.push(worker.clone());
         });
         (

@@ -111,7 +111,7 @@ async fn run_pipeline(state: MachineState) {
         debug!("Assigning tasks to workers");
         loop {
             debug!("Trying to get read lock on Workers list");
-            if let Ok(workers) = workers.try_lock() {
+            if let Ok(workers) = workers.read() {
                 debug!("Acquired read lock on Workers");
                 if workers.len() > 0 {
                     debug!("There are workers registered.");
@@ -267,7 +267,7 @@ mod tests {
 
         use std::collections::HashSet;
         use std::net::SocketAddr;
-        use std::sync::{Arc, Mutex};
+        use std::sync::{Arc, Mutex, RwLock};
         use std::time::Instant;
 
         use tokio::sync::{mpsc, oneshot};
@@ -300,7 +300,7 @@ mod tests {
                     boot_instant: Instant::now(),
                     master: Some(master),
                     workers: Arc::new(
-                        Mutex::new(
+                        RwLock::new(
                             HashSet::new()
                         )
                     ),

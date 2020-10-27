@@ -47,7 +47,7 @@ async fn send_heartbeats(
 
         if let Ok(neighbor) = heartbeat_receiver.try_recv() {
             if neighbor.kind == system::MachineKind::Worker {
-                match workers.try_lock() {
+                match workers.try_write() {
                     Ok(mut workers) => {
                         debug!("Inserting/updating new worker {}", neighbor.addr);
                         workers.replace(neighbor);
@@ -72,7 +72,7 @@ async fn send_heartbeats(
 
         debug!("Sending heartbeats from {:?}", kind);
         if kind == system::MachineKind::Master {
-            if let Ok(mut workers) = workers.try_lock() {
+            if let Ok(mut workers) = workers.try_write() {
                 if workers.is_empty() {
                     warn!("No workers have been registered yet. Sleeping.");
                 } else {
@@ -146,7 +146,7 @@ mod tests {
 
         use std::collections::HashSet;
         use std::net::SocketAddr;
-        use std::sync::{Arc, Mutex};
+        use std::sync::{Arc, Mutex, RwLock};
         use std::time::{Duration, Instant};
 
         use httptest::{Server, Expectation, matchers::*, responders::*};
@@ -199,7 +199,7 @@ mod tests {
                     boot_instant: Instant::now(),
                     master: Some(master),
                     workers: Arc::new(
-                        Mutex::new(
+                        RwLock::new(
                             HashSet::new()
                         )
                     ),
@@ -233,7 +233,7 @@ mod tests {
 
         use std::collections::HashSet;
         use std::net::SocketAddr;
-        use std::sync::{Arc, Mutex};
+        use std::sync::{Arc, Mutex, RwLock};
         use std::time::{Duration, Instant};
 
         use httptest::{Server, Expectation, matchers::*, responders::*};
@@ -279,7 +279,7 @@ mod tests {
         let mut workers_set = HashSet::new();
         workers_set.replace(worker);
         let workers = Arc::new(
-            Mutex::new(
+            RwLock::new(
                 workers_set
             )
         );
@@ -324,7 +324,7 @@ mod tests {
 
         use std::collections::HashSet;
         use std::net::SocketAddr;
-        use std::sync::{Arc, Mutex};
+        use std::sync::{Arc, Mutex, RwLock};
         use std::time::{Duration, Instant};
 
         use httptest::{Server, Expectation, matchers::*, responders::*};
@@ -380,7 +380,7 @@ mod tests {
                     boot_instant: boot,
                     master: Some(master),
                     workers: Arc::new(
-                        Mutex::new(
+                        RwLock::new(
                             HashSet::new()
                         )
                     ),
@@ -418,7 +418,7 @@ mod tests {
 
         use std::collections::HashSet;
         use std::net::SocketAddr;
-        use std::sync::{Arc, Mutex};
+        use std::sync::{Arc, Mutex, RwLock};
         use std::time::{Duration, Instant};
 
         use tokio::sync::{mpsc, oneshot};
@@ -449,7 +449,7 @@ mod tests {
                     boot_instant: boot,
                     master: Some(master),
                     workers: Arc::new(
-                        Mutex::new(
+                        RwLock::new(
                             HashSet::new()
                         )
                     ),
