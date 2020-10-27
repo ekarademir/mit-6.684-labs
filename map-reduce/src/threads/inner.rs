@@ -220,7 +220,6 @@ pub fn spawn_inner(
 
 mod tests {
     #[tokio::test]
-    #[cfg_attr(feature = "dont_test_this", ignore)]
     async fn test_wait_for_task_listens_until_channel_is_closed() {
         // Uncomment for debugging
         // let _ = env_logger::try_init();
@@ -260,7 +259,6 @@ mod tests {
         });
     }
     #[tokio::test]
-    #[cfg_attr(feature = "dont_test_this", ignore)]
     async fn test_wait_for_task() {
         // Uncomment for debugging
         // let _ = env_logger::try_init();

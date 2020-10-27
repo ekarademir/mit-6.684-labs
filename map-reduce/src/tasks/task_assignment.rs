@@ -23,6 +23,20 @@ pub enum ATask {
     SumCounts,
 }
 
+impl ATask {
+    pub fn is_map(&self) -> bool {
+        match self {
+            ATask::CountWords => true,
+            _ => false
+        }
+    }
+
+    pub fn is_reduce(&self) -> bool {
+        !self.is_map()
+    }
+}
+
+
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct TaskAssignment {
     pub task: ATask,
@@ -46,4 +60,15 @@ async fn count_words(input: &TaskInputs) {
 
 async fn sum_counts(input: &TaskInputs) {
     debug!("Total Count!!!!");
+}
+
+
+#[cfg(test)]
+mod tests {
+  #[test]
+  fn test_map_reduce_test() {
+    let atask = super::ATask::CountWords;
+    assert_eq!(atask.is_map(), true);
+    assert_eq!(atask.is_reduce(), false);
+  }
 }

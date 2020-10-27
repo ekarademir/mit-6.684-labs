@@ -84,7 +84,6 @@ impl IntoIterator for Pipeline {
 #[cfg(test)]
 mod tests {
   #[test]
-  #[cfg_attr(feature = "dont_test_this", ignore)]
   fn test_linear_dag() {
     let mut task_pipeline = super::Pipeline::new();
     let count_words = task_pipeline.add_task(super::ATask::CountWords);
@@ -106,7 +105,6 @@ mod tests {
   }
 
   #[test]
-  #[cfg_attr(feature = "dont_test_this", ignore)]
   fn test_cyclic() {
     let mut task_pipeline = super::Pipeline::new();
     let count_words = task_pipeline.add_task(super::ATask::CountWords);
@@ -126,7 +124,6 @@ mod tests {
   }
 
   #[test]
-  #[cfg_attr(feature = "dont_test_this", ignore)]
   fn test_multi_level_dag() {
     let mut task_pipeline = super::Pipeline::new();
     let count_words1 = task_pipeline.add_task(super::ATask::CountWords);
