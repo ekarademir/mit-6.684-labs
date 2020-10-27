@@ -15,6 +15,11 @@ use super::task_assignment::{
 type TaskGraph = petgraph::Graph<ATask, (), petgraph::Directed>;
 type TaskNode = graph::NodeIndex;
 
+pub struct TaskRun {
+  task_assignment: TaskAssignment,
+
+}
+
 pub struct Pipeline {
   inner: TaskGraph,
   assignments: VecDeque<TaskAssignment>, // We might need to put this behind a RwLock

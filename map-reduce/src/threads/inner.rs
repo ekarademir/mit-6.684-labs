@@ -101,10 +101,10 @@ async fn run_pipeline(state: MachineState) {
 
     let first_task = tasks::TaskAssignment {
         task: tasks::ATask::CountWords,
-        input: tasks::TaskInput {
+        input: vec![tasks::TaskInput {
             machine_addr: "http://some.machine".to_string(),
             file: "some_file.txt".to_string(),
-        },
+        }],
     };
 
     {
@@ -237,10 +237,10 @@ mod tests {
 
         let task_asignment = tasks::TaskAssignment {
             task: tasks::ATask::CountWords,
-            input: tasks::TaskInput {
+            input: vec![tasks::TaskInput {
                 machine_addr: "http://other_worker.machine".to_string(),
                 file: "/some/file".to_string(),
-            }
+            }]
         };
 
         // Run test
@@ -316,10 +316,10 @@ mod tests {
 
         let task_asignment = tasks::TaskAssignment {
             task: tasks::ATask::CountWords,
-            input: tasks::TaskInput {
+            input: vec![tasks::TaskInput {
                 machine_addr: "http://other_worker.machine".to_string(),
                 file: "/some/file".to_string(),
-            }
+            }]
         };
 
         // Run test

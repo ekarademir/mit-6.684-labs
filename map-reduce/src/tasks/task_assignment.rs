@@ -15,6 +15,8 @@ pub struct TaskInput {
     pub file: String,
 }
 
+pub type TaskInputs = Vec<TaskInput>;
+
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Serialize, Deserialize)]
 pub enum ATask {
     CountWords,
@@ -24,7 +26,7 @@ pub enum ATask {
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct TaskAssignment {
     pub task: ATask,
-    pub input: TaskInput,
+    pub input: TaskInputs,
 }
 
 
@@ -38,10 +40,10 @@ impl TaskAssignment {
     }
 }
 
-async fn count_words(input: &TaskInput) {
+async fn count_words(input: &TaskInputs) {
     debug!("Counting words!!!!");
 }
 
-async fn sum_counts(input: &TaskInput) {
+async fn sum_counts(input: &TaskInputs) {
     debug!("Total Count!!!!");
 }
