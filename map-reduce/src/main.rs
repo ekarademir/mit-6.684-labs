@@ -163,7 +163,4 @@ fn main() {
 }
 
 // TODO handle SIGTERM to kill threads too
-// TODO master assigns work to workers
-// TODO add test for master, receiving heartbeat from worker
-
 // TODO (Optional) Make it workable via https
