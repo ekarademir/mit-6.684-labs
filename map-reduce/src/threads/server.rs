@@ -26,7 +26,7 @@ pub fn spawn_server(
         let mut rt = Runtime::new().unwrap();
         rt.block_on(async {
             let (addr, kind) = {
-                let state = main_state.lock().unwrap();
+                let state = main_state.read().unwrap();
                 (state.socket, state.kind)
             };
             info!("I am a {:?} machine", kind);

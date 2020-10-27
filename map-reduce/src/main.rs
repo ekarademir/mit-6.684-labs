@@ -18,8 +18,7 @@ use api::system;
 
 const DEFAULT_SOCKET: &str = "0.0.0.0:3000";
 
-// TODO All this locks can be RwLocks
-type MachineState = Arc<Mutex<Machine>>;
+type MachineState = Arc<RwLock<Machine>>;
 type Workers = Arc<RwLock<HashSet<system::NetworkNeighbor>>>;
 type HeartbeatKillSwitch = Arc<Mutex<oneshot::Receiver<()>>>;
 
@@ -126,7 +125,7 @@ fn main() {
         ).init();
 
     let me: MachineState = Arc::new(
-        Mutex::new(
+        RwLock::new(
             Machine::new()
         )
     );

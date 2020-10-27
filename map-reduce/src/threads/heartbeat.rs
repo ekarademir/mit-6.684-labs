@@ -27,7 +27,7 @@ async fn send_heartbeats(
             maybe_master,
             boot_time,
         ) = {
-            let my_state = state.lock().unwrap();
+            let my_state = state.read().unwrap();
             (
                 my_state.kind.clone(),
                 my_state.workers.clone(),
@@ -57,7 +57,7 @@ async fn send_heartbeats(
                     }
                 }
             } else if neighbor.kind == system::MachineKind::Master {
-                match state.try_lock() {
+                match state.try_write() {
                     Ok(mut state) => {
                         debug!("Updating master {}", neighbor.addr);
                         state.master = Some(neighbor);
@@ -190,7 +190,7 @@ mod tests {
             last_heartbeat_ns: 0
         };
         let machine_state = Arc::new(
-            Mutex::new(
+            RwLock::new(
                 Machine {
                     kind: system::MachineKind::Worker,
                     status: system::Status::NotReady,
@@ -284,7 +284,7 @@ mod tests {
             )
         );
         let machine_state = Arc::new(
-            Mutex::new(
+            RwLock::new(
                 Machine {
                     kind: system::MachineKind::Master,
                     status: system::Status::NotReady,
@@ -371,7 +371,7 @@ mod tests {
             last_heartbeat_ns: boot.elapsed().as_nanos()
         };
         let machine_state = Arc::new(
-            Mutex::new(
+            RwLock::new(
                 Machine {
                     kind: system::MachineKind::Worker,
                     status: system::Status::Online,
@@ -440,7 +440,7 @@ mod tests {
             last_heartbeat_ns: boot.elapsed().as_nanos()
         };
         let machine_state = Arc::new(
-            Mutex::new(
+            RwLock::new(
                 Machine {
                     kind: system::MachineKind::Worker,
                     status: system::Status::Online,

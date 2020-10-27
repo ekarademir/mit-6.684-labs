@@ -59,7 +59,7 @@ pub async fn health(state: MachineState) -> String {
         status,
         kind,
     ) = {
-        let machine_state = state.lock().unwrap();
+        let machine_state = state.read().unwrap();
         (
             machine_state.status.clone(),
             machine_state.kind.clone(),
@@ -90,7 +90,7 @@ pub async fn heartbeat(
                         my_kind,
                         my_host,
                     ) = {
-                        let machine_state = state.lock().unwrap();
+                        let machine_state = state.read().unwrap();
                         (
                             machine_state.status.clone(),
                             machine_state.boot_instant.clone(),
@@ -137,7 +137,7 @@ pub async fn about(state: MachineState) -> String {
         kind,
         network
     ) = {
-        let machine_state = state.lock().unwrap();
+        let machine_state = state.read().unwrap();
         let mut network: Vec<NetworkNeighbor> = Vec::new();
         if let Some(master) = &machine_state.master {
             network.push(master.clone())

@@ -63,7 +63,7 @@ async fn wait_for_task(
     while let Some((task, ack_tx)) = task_funnel.recv().await {
         {
             debug!("Received task {:?}, setting myself Busy", task.task);
-            if let Ok(mut state) = state.try_lock() {
+            if let Ok(mut state) = state.try_write() {
                 state.status = system::Status::Busy;
                 ack_tx.send(true).unwrap();
             } else {
@@ -76,7 +76,7 @@ async fn wait_for_task(
             debug!("Finished task {:?}, setting myself Ready", task.task);
             loop {
                 debug!("Trying to get write lock on MachineState");
-                if let Ok(mut state) = state.try_lock() {
+                if let Ok(mut state) = state.try_write() {
                     debug!("Acquired write lock on MachineState");
                     state.status = system::Status::Ready;
                     debug!("Machine set to Ready");
@@ -95,7 +95,7 @@ async fn run_pipeline(state: MachineState) {
     // TODO This needs refactoring and rethinking. Pipeline must be defined by Tasks module.
     //          Hence tasks are iterated from pipeline.
     let workers = {
-        let state = state.lock().unwrap();
+        let state = state.read().unwrap();
         state.workers.clone()
     };
 
@@ -162,7 +162,7 @@ pub fn spawn_inner(
                 my_kind,
                 master_uri,
             ) = {
-                let state = main_state.lock().unwrap();
+                let state = main_state.read().unwrap();
                 (
                     state.socket.clone(),
                     state.kind.clone(),
@@ -195,7 +195,7 @@ pub fn spawn_inner(
             }
             // Update this machine state as ready
             {
-                let mut state = main_state.lock().unwrap();
+                let mut state = main_state.write().unwrap();
                 state.status = system::Status::Ready;
                 if my_kind == system::MachineKind::Worker {
                     state.master = Some(
@@ -291,7 +291,7 @@ mod tests {
         };
 
         let machine_state = Arc::new(
-            Mutex::new(
+            RwLock::new(
                 Machine {
                     kind: system::MachineKind::Worker,
                     status: system::Status::NotReady,
@@ -337,7 +337,7 @@ mod tests {
         // Kick off
         super::wait_for_task(machine_state.clone(), task_rx).await;
         {
-            let state = machine_state.lock().unwrap();
+            let state = machine_state.read().unwrap();
             // Check if the machine state is back to Ready after running the task.
             assert_eq!(state.status, system::Status::Ready);
         }
