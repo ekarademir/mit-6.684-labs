@@ -1,5 +1,6 @@
-use std::iter::IntoIterator;
-use std::collections::{VecDeque, HashMap};
+use std::ops::Index;
+use std::collections::HashMap;
+use std::sync::{Arc, RwLock};
 use std::time::Instant;
 
 use petgraph::{
@@ -23,26 +24,32 @@ enum AssignmentStatus {
 type TaskGraph = petgraph::Graph<ATask, (), petgraph::Directed>;
 type TaskNode = graph::NodeIndex;
 type KeyStore = HashMap<String, HashMap<TaskInput, AssignmentStatus>>; // Values are task inputs to status of task
-type TaskStore = HashMap<TaskNode, KeyStore>;
+type TaskStoreInner = HashMap<TaskNode, KeyStore>;
+type TaskStore = Arc<RwLock<TaskStoreInner>>;
 
 pub struct TaskRun {
   task_assignment: TaskAssignment,
 
 }
 
-pub struct Pipeline {
+pub struct PipelineBuilder {
   inner: TaskGraph,
-  store: TaskStore, // We might need to put this behind a RwLock
 }
 
+impl Index<&TaskNode> for PipelineBuilder {
+  type Output = ATask;
 
-impl Pipeline {
+  fn index(&self, &index: &TaskNode) -> &Self::Output {
+      &self.inner[index]
+  }
+}
+
+impl PipelineBuilder {
   pub fn new() -> Self {
     let inner = TaskGraph::new();
-    let store = TaskStore::new();
-    Pipeline {
+
+    PipelineBuilder {
       inner,
-      store,
     }
   }
 
@@ -55,13 +62,54 @@ impl Pipeline {
     self.inner.add_edge(from, to, ());
   }
 
+  fn linearize(&self) -> Vec<TaskNode> {
+    let mut linear: Vec<TaskNode> = Vec::new();
+
+    let mut topological_sort = visit::Topo::new(&self.inner);
+    while let Some(node_idx) = topological_sort.next(&self.inner) {
+      linear.push(node_idx);
+    }
+
+    linear
+  }
+
+  // pub fn get_item(&self, &idx: &TaskNode) -> ATask {
+  //   self.inner[idx].clone()
+  // }
+
+  pub fn build(self) -> Pipeline {
+    let ordered = self.linearize();
+    let store = Arc::new(
+      RwLock::new(
+        TaskStoreInner::new()
+      )
+    );
+    Pipeline {
+      ordered,
+      store,
+      inner: self.inner,
+    }
+  }
+}
+
+pub struct Pipeline {
+  inner: TaskGraph,
+  store: TaskStore,
+  ordered: Vec<TaskNode>,
+}
+
+impl Pipeline {
+  pub fn new() -> PipelineBuilder {
+    PipelineBuilder::new()
+  }
+
   pub fn finished_task(&mut self, task_id: TaskNode, key: String, result: TaskInput) {
     // find the tasknode and marking the task input done
     // Then add the taskinput as undone to the next level of tasks
     unimplemented!();
   }
 
-  pub async fn next() -> Option<TaskAssignment> {
+  pub fn next() -> Option<TaskAssignment> {
     // Return the next item in assignment queue
     // Scan the store get the next unfinished task input
     //    If passed tolerated amount of time assign again
@@ -70,36 +118,19 @@ impl Pipeline {
   }
 
   pub fn init(&mut self, pipeline_inputs: TaskInputs) {
-    // Lock adding stuff
+
     //  Files for the first one probably should be acquired from the master
     // Insert inputs to task store with the first line of tasks in the graph
     unimplemented!()
   }
 }
 
-// TODO this is probably unnecessary
-// TODO tests are good fur multi level stuff but order is not important
-impl IntoIterator for Pipeline {
-  type Item = ATask;
-  type IntoIter = std::vec::IntoIter<Self::Item>;
-
-  fn into_iter(self) -> Self::IntoIter {
-      let mut linear: Vec<ATask> = Vec::new();
-
-      let mut topological_sort = visit::Topo::new(&self.inner);
-      while let Some(node_idx) = topological_sort.next(&self.inner) {
-        linear.push(self.inner[node_idx]);
-      }
-
-      linear.into_iter()
-  }
-}
 
 #[cfg(test)]
 mod tests {
   #[test]
-  fn test_linear_dag() {
-    let mut task_pipeline = super::Pipeline::new();
+  fn test_builder_linear_dag() {
+    let mut task_pipeline = super::PipelineBuilder::new();
     let count_words = task_pipeline.add_task(super::ATask::CountWords);
     let sum_counts = task_pipeline.add_task(super::ATask::SumCounts);
 
@@ -113,13 +144,13 @@ mod tests {
       super::ATask::SumCounts
     ];
 
-    for (idx, task) in task_pipeline.into_iter().enumerate() {
-      assert_eq!(expected[idx], task);
+    for (idx, task_node) in task_pipeline.linearize().iter().enumerate() {
+      assert_eq!(expected[idx], task_pipeline[task_node]);
     }
   }
 
   #[test]
-  fn test_cyclic() {
+  fn test_builder_cyclic() {
     let mut task_pipeline = super::Pipeline::new();
     let count_words = task_pipeline.add_task(super::ATask::CountWords);
     let sum_counts = task_pipeline.add_task(super::ATask::SumCounts);
@@ -132,13 +163,13 @@ mod tests {
 
     let expected: Vec<super::ATask> = Vec::new();
 
-    for (idx, task) in task_pipeline.into_iter().enumerate() {
-      assert_eq!(expected[idx], task);
+    for (idx, task_node) in task_pipeline.linearize().iter().enumerate() {
+      assert_eq!(expected[idx], task_pipeline[task_node]);
     }
   }
 
   #[test]
-  fn test_multi_level_dag() {
+  fn test_builder_multi_level_dag() {
     let mut task_pipeline = super::Pipeline::new();
     let count_words1 = task_pipeline.add_task(super::ATask::CountWords);
     let sum_counts1 = task_pipeline.add_task(super::ATask::SumCounts);
@@ -160,8 +191,8 @@ mod tests {
       super::ATask::CountWords,
     ];
 
-    for (idx, task) in task_pipeline.into_iter().enumerate() {
-      assert_eq!(expected[idx], task);
+    for (idx, task_node) in task_pipeline.linearize().iter().enumerate() {
+      assert_eq!(expected[idx], task_pipeline[task_node]);
     }
   }
 }
