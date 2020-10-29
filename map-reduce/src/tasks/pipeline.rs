@@ -73,10 +73,6 @@ impl PipelineBuilder {
     linear
   }
 
-  // pub fn get_item(&self, &idx: &TaskNode) -> ATask {
-  //   self.inner[idx].clone()
-  // }
-
   pub fn build(self) -> Pipeline {
     let ordered = self.linearize();
     let store = Arc::new(
@@ -117,11 +113,29 @@ impl Pipeline {
     unimplemented!()
   }
 
-  pub fn init(&mut self, pipeline_inputs: TaskInputs) {
+  fn previous_tasks(&self, &idx: &TaskNode) -> Vec<TaskNode> {
+    let mut prevs: Vec<TaskNode> = Vec::new();
+    for neighbor in self.inner.neighbors_directed(idx, petgraph::Direction::Incoming) {
+      prevs.push(neighbor);
+    }
+    prevs
+  }
 
-    //  Files for the first one probably should be acquired from the master
-    // Insert inputs to task store with the first line of tasks in the graph
-    unimplemented!()
+  fn next_tasks(&self, &idx: &TaskNode) -> Vec<TaskNode> {
+    let mut nexts: Vec<TaskNode> = Vec::new();
+    for neighbor in self.inner.neighbors_directed(idx, petgraph::Direction::Outgoing) {
+      nexts.push(neighbor);
+    }
+    nexts
+  }
+
+  pub fn init(&mut self, pipeline_inputs: TaskInputs) {
+    for task_idx in self.ordered.iter() {
+      let prev_tasks = self.previous_tasks(&task_idx);
+      if prev_tasks.len() == 0 {
+        // TODO Insert inputs to store
+      }
+    }
   }
 }
 
@@ -129,12 +143,27 @@ impl Pipeline {
 #[cfg(test)]
 mod tests {
   #[test]
-  fn test_builder_linear_dag() {
-    let mut task_pipeline = super::PipelineBuilder::new();
-    let count_words = task_pipeline.add_task(super::ATask::CountWords);
-    let sum_counts = task_pipeline.add_task(super::ATask::SumCounts);
+  #[ignore = "unfinished"]
+  fn test_builder_pattern() {
+    let mut  test_pipeline = super::Pipeline::new();
+    let task1 = test_pipeline.add_task(super::ATask::CountWords);
+    let task2 = test_pipeline.add_task(super::ATask::CountWords);
+    let task3 = test_pipeline.add_task(super::ATask::CountWords);
+    test_pipeline.order_tasks(task1, task2);
+    test_pipeline.order_tasks(task2, task3);
+    let task_pipeline = test_pipeline.build();
 
-    task_pipeline.order_tasks(count_words, sum_counts);
+
+
+  }
+
+  #[test]
+  fn test_builder_linear_dag() {
+    let mut task_pipeline_builder = super::PipelineBuilder::new();
+    let count_words = task_pipeline_builder.add_task(super::ATask::CountWords);
+    let sum_counts = task_pipeline_builder.add_task(super::ATask::SumCounts);
+
+    task_pipeline_builder.order_tasks(count_words, sum_counts);
 
     // count_words -> sum_counts
 
@@ -144,41 +173,41 @@ mod tests {
       super::ATask::SumCounts
     ];
 
-    for (idx, task_node) in task_pipeline.linearize().iter().enumerate() {
-      assert_eq!(expected[idx], task_pipeline[task_node]);
+    for (idx, task_node) in task_pipeline_builder.linearize().iter().enumerate() {
+      assert_eq!(expected[idx], task_pipeline_builder[task_node]);
     }
   }
 
   #[test]
   fn test_builder_cyclic() {
-    let mut task_pipeline = super::Pipeline::new();
-    let count_words = task_pipeline.add_task(super::ATask::CountWords);
-    let sum_counts = task_pipeline.add_task(super::ATask::SumCounts);
+    let mut task_pipeline_builder = super::Pipeline::new();
+    let count_words = task_pipeline_builder.add_task(super::ATask::CountWords);
+    let sum_counts = task_pipeline_builder.add_task(super::ATask::SumCounts);
 
-    task_pipeline.order_tasks(count_words, sum_counts);
-    task_pipeline.order_tasks(sum_counts, count_words);
+    task_pipeline_builder.order_tasks(count_words, sum_counts);
+    task_pipeline_builder.order_tasks(sum_counts, count_words);
 
     // count_words -> sum_counts
     //            \__/
 
     let expected: Vec<super::ATask> = Vec::new();
 
-    for (idx, task_node) in task_pipeline.linearize().iter().enumerate() {
-      assert_eq!(expected[idx], task_pipeline[task_node]);
+    for (idx, task_node) in task_pipeline_builder.linearize().iter().enumerate() {
+      assert_eq!(expected[idx], task_pipeline_builder[task_node]);
     }
   }
 
   #[test]
   fn test_builder_multi_level_dag() {
-    let mut task_pipeline = super::Pipeline::new();
-    let count_words1 = task_pipeline.add_task(super::ATask::CountWords);
-    let sum_counts1 = task_pipeline.add_task(super::ATask::SumCounts);
-    let count_words2 = task_pipeline.add_task(super::ATask::CountWords);
-    let sum_counts2 = task_pipeline.add_task(super::ATask::SumCounts);
+    let mut task_pipeline_builder = super::Pipeline::new();
+    let count_words1 = task_pipeline_builder.add_task(super::ATask::CountWords);
+    let sum_counts1 = task_pipeline_builder.add_task(super::ATask::SumCounts);
+    let count_words2 = task_pipeline_builder.add_task(super::ATask::CountWords);
+    let sum_counts2 = task_pipeline_builder.add_task(super::ATask::SumCounts);
 
-    task_pipeline.order_tasks(sum_counts1, sum_counts2);
-    task_pipeline.order_tasks(count_words1, sum_counts2);
-    task_pipeline.order_tasks(sum_counts2, count_words2);
+    task_pipeline_builder.order_tasks(sum_counts1, sum_counts2);
+    task_pipeline_builder.order_tasks(count_words1, sum_counts2);
+    task_pipeline_builder.order_tasks(sum_counts2, count_words2);
 
     // sum_counts1 \
     //              |-> sum_counts2 -> count_words2
@@ -191,8 +220,8 @@ mod tests {
       super::ATask::CountWords,
     ];
 
-    for (idx, task_node) in task_pipeline.linearize().iter().enumerate() {
-      assert_eq!(expected[idx], task_pipeline[task_node]);
+    for (idx, task_node) in task_pipeline_builder.linearize().iter().enumerate() {
+      assert_eq!(expected[idx], task_pipeline_builder[task_node]);
     }
   }
 }
