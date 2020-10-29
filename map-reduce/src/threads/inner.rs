@@ -101,6 +101,7 @@ async fn run_pipeline(state: MachineState) {
 
     let first_task = tasks::TaskAssignment {
         task: tasks::ATask::CountWords,
+        task_id: "taskid".to_string(),
         input: vec![tasks::TaskInput {
             machine_addr: "http://some.machine".to_string(),
             file: "some_file.txt".to_string(),
@@ -236,6 +237,7 @@ mod tests {
 
         let task_asignment = tasks::TaskAssignment {
             task: tasks::ATask::CountWords,
+            task_id: "taskid".to_string(),
             input: vec![tasks::TaskInput {
                 machine_addr: "http://other_worker.machine".to_string(),
                 file: "/some/file".to_string(),
@@ -265,7 +267,7 @@ mod tests {
 
         use std::collections::HashSet;
         use std::net::SocketAddr;
-        use std::sync::{Arc, Mutex, RwLock};
+        use std::sync::{Arc, RwLock};
         use std::time::Instant;
 
         use tokio::sync::{mpsc, oneshot};
@@ -314,6 +316,7 @@ mod tests {
 
         let task_asignment = tasks::TaskAssignment {
             task: tasks::ATask::CountWords,
+            task_id: "taskid".to_string(),
             input: vec![tasks::TaskInput {
                 machine_addr: "http://other_worker.machine".to_string(),
                 file: "/some/file".to_string(),

@@ -21,8 +21,8 @@ enum AssignmentStatus {
   Finished
 }
 
+pub type TaskNode = graph::NodeIndex;
 type TaskGraph = petgraph::Graph<ATask, (), petgraph::Directed>;
-type TaskNode = graph::NodeIndex;
 type KeyStore = HashMap<String, HashMap<TaskInput, AssignmentStatus>>; // Values are task inputs to status of task
 type TaskStoreInner = HashMap<TaskNode, KeyStore>;
 type TaskStore = Arc<RwLock<TaskStoreInner>>;
@@ -113,6 +113,25 @@ impl Pipeline {
     unimplemented!()
   }
 
+  pub fn init(&mut self, pipeline_inputs: TaskInputs) {
+    for task_idx in self.ordered.iter() {
+      let prev_tasks = self.previous_tasks(&task_idx);
+      if prev_tasks.len() == 0 {
+        // TODO Insert inputs to store
+      }
+    }
+  }
+
+  fn is_at_start(&self, &idx: &TaskNode) -> bool {
+    let prevs = self.previous_tasks(&idx);
+    prevs.len() == 0
+  }
+
+  fn is_at_end(&self, &idx: &TaskNode) -> bool {
+    let nexts = self.previous_tasks(&idx);
+    nexts.len() == 0
+  }
+
   fn previous_tasks(&self, &idx: &TaskNode) -> Vec<TaskNode> {
     let mut prevs: Vec<TaskNode> = Vec::new();
     for neighbor in self.inner.neighbors_directed(idx, petgraph::Direction::Incoming) {
@@ -128,22 +147,12 @@ impl Pipeline {
     }
     nexts
   }
-
-  pub fn init(&mut self, pipeline_inputs: TaskInputs) {
-    for task_idx in self.ordered.iter() {
-      let prev_tasks = self.previous_tasks(&task_idx);
-      if prev_tasks.len() == 0 {
-        // TODO Insert inputs to store
-      }
-    }
-  }
 }
 
 
 #[cfg(test)]
 mod tests {
   #[test]
-  #[ignore = "unfinished"]
   fn test_builder_pattern() {
     let mut  test_pipeline = super::Pipeline::new();
     let task1 = test_pipeline.add_task(super::ATask::CountWords);

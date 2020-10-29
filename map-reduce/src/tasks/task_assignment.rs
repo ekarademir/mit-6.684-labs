@@ -1,6 +1,8 @@
 use log::debug;
 use serde::{Deserialize, Serialize};
 
+use super::pipeline::TaskNode;
+
 // TODO Probably a macro to register a task which,
 //    * Copies the function
 //      * Either converts function_case to CamelCase or gets also ATask name
@@ -41,6 +43,7 @@ impl ATask {
 pub struct TaskAssignment {
     pub task: ATask,
     pub input: TaskInputs,
+    pub task_id: String,
 }
 
 
