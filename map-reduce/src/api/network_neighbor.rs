@@ -273,7 +273,7 @@ mod tests {
         let task_assignment = serde_json::json!(
             {
                 "task": "CountWords",
-                "task_id": "task_id",
+                "task_id": 42,
                 "input": [{
                     "machine_addr": "http://some.machine",
                     "file": "some_file.txt"
@@ -307,7 +307,7 @@ mod tests {
                 machine_addr: "http://some.machine".to_string(),
                 file: "some_file.txt".to_string(),
             }],
-            task_id: "task_id".to_string(),
+            task_id: 42,
         };
 
         // Run test
@@ -344,7 +344,7 @@ mod tests {
                 machine_addr: "http://some.machine".to_string(),
                 file: "some_file.txt".to_string(),
             }],
-            task_id: "task_id".to_string(),
+            task_id: 42,
         };
 
         // Run test
@@ -377,7 +377,7 @@ mod tests {
                 machine_addr: "http://some.machine".to_string(),
                 file: "some_file.txt".to_string(),
             }],
-            task_id: "task_id".to_string(),
+            task_id: 42,
         };
 
         // Run test

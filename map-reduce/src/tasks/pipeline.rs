@@ -17,6 +17,9 @@ use super::task_assignment::{
   TaskInputs
 };
 
+const START_KEY: &str = "GRAPH_START";
+const REASSIGN_TRESHOLD:Duration = Duration::from_secs(60 * 5); // 5 minutes
+
 #[derive(Debug, PartialEq)]
 enum AssignmentStatus {
   Unassigned,
@@ -30,7 +33,6 @@ impl AssignmentStatus {
   }
 }
 
-const START_KEY: &str= "GRAPH_START";
 
 pub type TaskNode = graph::NodeIndex;
 type TaskGraph = petgraph::Graph<ATask, (), petgraph::Directed>;
@@ -106,22 +108,60 @@ pub struct Pipeline {
   ordered: Vec<TaskNode>,
 }
 
+impl Index<&TaskNode> for Pipeline {
+  type Output = ATask;
+
+  fn index(&self, &index: &TaskNode) -> &Self::Output {
+      &self.inner[index]
+  }
+}
+
 impl Pipeline {
   pub fn new() -> PipelineBuilder {
     PipelineBuilder::new()
   }
 
-  pub fn finished_task(&mut self, task_id: String, key: String, result: TaskInput) {
+  pub fn finished_task(&mut self, task_id: i32, key: String, result: TaskInput) {
     // find the tasknode and marking the task input done
     // Then add the taskinput as undone to the next level of tasks
     unimplemented!();
   }
 
-  pub fn next() -> Option<TaskAssignment> {
-    // Scan the store get the next unfinished task input
-    //    If passed tolerated amount of time assign again
-    // If all the task input of the last level are finished then we are done so return None
-    unimplemented!()
+  pub fn is_finished(&self) -> bool {
+    // Establish finish case
+    unimplemented!();
+  }
+
+  // TODO Add test
+  pub fn next(&self) -> Option<TaskAssignment> {
+    for (task_idx, key_store) in self.store.read().unwrap().iter() {
+      for (key, input_store) in key_store.iter() {
+        for (task_input, status) in input_store.iter() {
+          match status {
+            AssignmentStatus::Unassigned => {
+              let task = self[task_idx];
+              let input = vec![task_input.clone()];
+              let task_id = task_idx.index() as i32;
+              return Some(
+                TaskAssignment {task, input, task_id,}
+              );
+            },
+            AssignmentStatus::Assigned(t) => {
+              if Instant::now().duration_since(*t) > REASSIGN_TRESHOLD {
+                let task = self[task_idx];
+                let input = vec![task_input.clone()];
+                let task_id = task_idx.index() as i32;
+                return Some(
+                  TaskAssignment {task, input, task_id,}
+                );
+              }
+            },
+            _ => continue
+          }
+        }
+      }
+    }
+    None
   }
 
   pub fn init(&mut self, pipeline_inputs: TaskInputs) {

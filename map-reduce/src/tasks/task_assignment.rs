@@ -43,7 +43,7 @@ impl ATask {
 pub struct TaskAssignment {
     pub task: ATask,
     pub input: TaskInputs,
-    pub task_id: String,
+    pub task_id: i32,
 }
 
 
