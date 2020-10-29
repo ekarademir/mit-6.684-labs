@@ -11,7 +11,7 @@ use super::pipeline::TaskNode;
 // but fast to implement
 
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct TaskInput {
     pub machine_addr: String,
     pub file: String,

@@ -1,7 +1,8 @@
 use std::ops::Index;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
-use std::time::Instant;
+use std::time::{Duration, Instant};
+use std::thread;
 
 use petgraph::{
   self,
@@ -16,14 +17,25 @@ use super::task_assignment::{
   TaskInputs
 };
 
+#[derive(Debug, PartialEq)]
 enum AssignmentStatus {
+  Unassigned,
   Assigned(Instant),
   Finished
 }
 
+impl AssignmentStatus {
+  pub fn assigned() -> AssignmentStatus {
+    AssignmentStatus::Assigned(Instant::now())
+  }
+}
+
+const START_KEY: &str= "GRAPH_START";
+
 pub type TaskNode = graph::NodeIndex;
 type TaskGraph = petgraph::Graph<ATask, (), petgraph::Directed>;
-type KeyStore = HashMap<String, HashMap<TaskInput, AssignmentStatus>>; // Values are task inputs to status of task
+type InputStore = HashMap<TaskInput, AssignmentStatus>;
+type KeyStore = HashMap<String, InputStore>; // Values are task inputs to status of task
 type TaskStoreInner = HashMap<TaskNode, KeyStore>;
 type TaskStore = Arc<RwLock<TaskStoreInner>>;
 
@@ -99,14 +111,13 @@ impl Pipeline {
     PipelineBuilder::new()
   }
 
-  pub fn finished_task(&mut self, task_id: TaskNode, key: String, result: TaskInput) {
+  pub fn finished_task(&mut self, task_id: String, key: String, result: TaskInput) {
     // find the tasknode and marking the task input done
     // Then add the taskinput as undone to the next level of tasks
     unimplemented!();
   }
 
   pub fn next() -> Option<TaskAssignment> {
-    // Return the next item in assignment queue
     // Scan the store get the next unfinished task input
     //    If passed tolerated amount of time assign again
     // If all the task input of the last level are finished then we are done so return None
@@ -114,13 +125,51 @@ impl Pipeline {
   }
 
   pub fn init(&mut self, pipeline_inputs: TaskInputs) {
-    for task_idx in self.ordered.iter() {
-      let prev_tasks = self.previous_tasks(&task_idx);
-      if prev_tasks.len() == 0 {
-        // TODO Insert inputs to store
+    for task_idx in self.ordered.clone() {
+      if self.is_at_start(&task_idx) {
+        for input in pipeline_inputs.clone() {
+          self.upsert_status(
+            task_idx.clone(),
+            START_KEY.to_string(),
+            input.clone(),
+            AssignmentStatus::Unassigned
+          );
+        }
       }
     }
   }
+
+  fn upsert_status(&mut self, task_id: TaskNode, key: String, input: TaskInput, status: AssignmentStatus) {
+    // Store -[TaskNode]-> KeyStore -[Key]-> InputStore -[TaskInput]-> Status
+    // If any key in the nested map is not there create the entry
+    loop {
+      if let Ok(mut store) = self.store.try_write() {
+        let mut key_store = match store.remove(&task_id) {
+          Some(x) => x,
+          None => KeyStore::new(),
+        };
+
+        let mut input_store = match key_store.remove(&key) {
+          Some(x) => x,
+          None => InputStore::new(),
+        };
+
+        // Last nested level, just dump the content and replace
+        let _ = input_store.remove(&input);
+
+        // Now nest them back
+        input_store.insert(input, status);
+        key_store.insert(key, input_store);
+        store.insert(task_id, key_store);
+
+        // Break the wait loop
+        break;
+      } else {
+        thread::sleep(Duration::from_micros(150));
+      }
+    }
+  }
+
 
   fn is_at_start(&self, &idx: &TaskNode) -> bool {
     let prevs = self.previous_tasks(&idx);
@@ -128,7 +177,7 @@ impl Pipeline {
   }
 
   fn is_at_end(&self, &idx: &TaskNode) -> bool {
-    let nexts = self.previous_tasks(&idx);
+    let nexts = self.next_tasks(&idx);
     nexts.len() == 0
   }
 
@@ -153,8 +202,153 @@ impl Pipeline {
 #[cfg(test)]
 mod tests {
   #[test]
-  fn test_builder_pattern() {
-    let mut  test_pipeline = super::Pipeline::new();
+  fn test_init() {
+    let mut test_pipeline = super::Pipeline::new();
+    let task1 = test_pipeline.add_task(super::ATask::CountWords);
+    let task2 = test_pipeline.add_task(super::ATask::CountWords);
+    let task3 = test_pipeline.add_task(super::ATask::CountWords);
+
+    // Two starting tasks
+    test_pipeline.order_tasks(task1, task3);
+    test_pipeline.order_tasks(task2, task3);
+
+    let mut task_pipeline = test_pipeline.build();
+
+    let task_input = super::TaskInput {
+      machine_addr: "http://some.machine".to_string(),
+      file: "some_file.txt".to_string(),
+    };
+    let task_inputs = vec![task_input.clone()];
+
+    // Init shoud populate store immediatelly
+    task_pipeline.init(task_inputs);
+
+    let key = super::START_KEY.to_string();
+
+    assert!(
+      task_pipeline
+        .store.read().unwrap()
+        .get(&task1).unwrap()
+        .get(&key).unwrap()
+        .get(&task_input).unwrap()
+        .eq(&super::AssignmentStatus::Unassigned)
+    );
+
+    assert!(
+      task_pipeline
+        .store.read().unwrap()
+        .get(&task2).unwrap()
+        .get(&key).unwrap()
+        .get(&task_input).unwrap()
+        .eq(&super::AssignmentStatus::Unassigned)
+    );
+  }
+
+  #[test]
+  fn test_upsert_status() {
+    let mut test_pipeline = super::Pipeline::new();
+    let task1 = test_pipeline.add_task(super::ATask::CountWords);
+    let task2 = test_pipeline.add_task(super::ATask::CountWords);
+    let task3 = test_pipeline.add_task(super::ATask::CountWords);
+    test_pipeline.order_tasks(task1, task2);
+    test_pipeline.order_tasks(task2, task3);
+    let mut task_pipeline = test_pipeline.build();
+
+    let task_input = super::TaskInput {
+      machine_addr: "http://some.machine".to_string(),
+      file: "some_file.txt".to_string(),
+    };
+
+    let key = "test_key".to_string();
+
+    task_pipeline.upsert_status(
+      task1.clone(),
+      key.clone(),
+      task_input.clone(),
+      super::AssignmentStatus::Unassigned,
+    );
+
+    // First nest
+    assert!(
+      task_pipeline
+        .store.read().unwrap()
+        .contains_key(&task1)
+    );
+
+    // Second nest
+    assert!(
+      task_pipeline
+        .store.read().unwrap()
+        .get(&task1).unwrap()
+        .contains_key(&key)
+    );
+
+    // Last nest
+    assert!(
+      task_pipeline
+        .store.read().unwrap()
+        .get(&task1).unwrap()
+        .get(&key).unwrap()
+        .contains_key(&task_input)
+    );
+
+    // The Gem
+    assert!(
+      task_pipeline
+        .store.read().unwrap()
+        .get(&task1).unwrap()
+        .get(&key).unwrap()
+        .get(&task_input).unwrap()
+        .eq(&super::AssignmentStatus::Unassigned)
+    );
+
+    // Update
+    task_pipeline.upsert_status(
+      task1.clone(),
+      key.clone(),
+      task_input.clone(),
+      super::AssignmentStatus::Finished,
+    );
+
+    // Test again
+    // First nest
+    assert!(
+      task_pipeline
+        .store.read().unwrap()
+        .contains_key(&task1)
+    );
+
+    // Second nest
+    assert!(
+      task_pipeline
+        .store.read().unwrap()
+        .get(&task1).unwrap()
+        .contains_key(&key)
+    );
+
+    // Last nest
+    assert!(
+      task_pipeline
+        .store.read().unwrap()
+        .get(&task1).unwrap()
+        .get(&key).unwrap()
+        .contains_key(&task_input)
+    );
+
+    // The Gem
+    assert!(
+      task_pipeline
+        .store.read().unwrap()
+        .get(&task1).unwrap()
+        .get(&key).unwrap()
+        .get(&task_input).unwrap()
+        .eq(&super::AssignmentStatus::Finished)
+    );
+  }
+
+  #[test]
+  fn test_order_check() {
+    let mut test_pipeline = super::Pipeline::new();
     let task1 = test_pipeline.add_task(super::ATask::CountWords);
     let task2 = test_pipeline.add_task(super::ATask::CountWords);
     let task3 = test_pipeline.add_task(super::ATask::CountWords);
@@ -162,8 +356,10 @@ mod tests {
     test_pipeline.order_tasks(task2, task3);
     let task_pipeline = test_pipeline.build();
 
-
-
+    assert!(task_pipeline.is_at_end(&task3));
+    assert!(task_pipeline.is_at_start(&task1));
+    assert_ne!(task_pipeline.is_at_end(&task1), true);
+    assert_ne!(task_pipeline.is_at_start(&task2), true);
   }
 
   #[test]
