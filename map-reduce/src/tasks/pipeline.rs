@@ -102,6 +102,15 @@ impl PipelineBuilder {
   }
 }
 
+#[derive(Debug)]
+pub enum PipelineError {
+  TaskIdNotFound,
+  KeyNotFound,
+  TaskInputNotFound,
+  CantReadStore,
+  ResultKeyMissing,
+}
+
 pub struct Pipeline {
   inner: TaskGraph,
   store: TaskStore,
@@ -121,18 +130,59 @@ impl Pipeline {
     PipelineBuilder::new()
   }
 
-  pub fn finished_task(&mut self, task_id: i32, key: String, result: TaskInput) {
-    // find the tasknode and marking the task input done
-    // Then add the taskinput as undone to the next level of tasks
-    unimplemented!();
+  pub fn finished_task(
+    &mut self,
+    task_id: u32,
+    key: String,
+    finished: TaskInput,
+    maybe_result_key: Option<String>,
+    maybe_result: Option<TaskInput>  // At least, final task will not give a result
+  ) -> Result<(), PipelineError> {
+    let task_id = graph::NodeIndex::new(task_id as usize);
+    if let Ok(store) = self.store.clone().read() {
+      if let Some(key_store) = store.get(&task_id) {
+        if let Some(input_store) = key_store.get(&key) {
+          if let Some(_) = input_store.get(&finished) {
+            // Update the old entry
+            self.upsert_status(task_id, key, finished, AssignmentStatus::Finished);
+            if let Some(result) = maybe_result {
+              // There is some resulting file, insert new entry to all subsequent tasks
+              if let Some(result_key) = maybe_result_key {
+                for next_task in self.next_tasks(&task_id) {
+                  self.upsert_status(
+                    task_id,
+                    result_key.clone(),
+                    result.clone(),
+                    AssignmentStatus::Unassigned
+                  );
+                }
+                Ok(())
+              } else {
+                // Result file is provided but result key is missing
+                Err(PipelineError::ResultKeyMissing)
+              }
+            } else {
+              // There is no result so nothing new to insert
+              Ok(())
+            }
+          } else {
+            Err(PipelineError::TaskInputNotFound)
+          }
+        } else {
+          Err(PipelineError::KeyNotFound)
+        }
+      } else {
+        Err(PipelineError::TaskIdNotFound)
+      }
+    } else {
+      Err(PipelineError::CantReadStore)
+    }
   }
 
   pub fn is_finished(&self) -> bool {
-    // Establish finish case
-    unimplemented!();
+    None == self.next()
   }
 
-  // TODO Add test
   pub fn next(&self) -> Option<TaskAssignment> {
     for (task_idx, key_store) in self.store.read().unwrap().iter() {
       for (key, input_store) in key_store.iter() {
@@ -141,7 +191,7 @@ impl Pipeline {
             AssignmentStatus::Unassigned => {
               let task = self[task_idx];
               let input = vec![task_input.clone()];
-              let task_id = task_idx.index() as i32;
+              let task_id = task_idx.index() as u32;
               return Some(
                 TaskAssignment {task, input, task_id,}
               );
@@ -150,7 +200,7 @@ impl Pipeline {
               if Instant::now().duration_since(*t) > REASSIGN_TRESHOLD {
                 let task = self[task_idx];
                 let input = vec![task_input.clone()];
-                let task_id = task_idx.index() as i32;
+                let task_id = task_idx.index() as u32;
                 return Some(
                   TaskAssignment {task, input, task_id,}
                 );
@@ -164,22 +214,39 @@ impl Pipeline {
     None
   }
 
+  // TODO Make return type a Result
   pub fn init(&mut self, pipeline_inputs: TaskInputs) {
     for task_idx in self.ordered.clone() {
       if self.is_at_start(&task_idx) {
-        for input in pipeline_inputs.clone() {
-          self.upsert_status(
-            task_idx.clone(),
-            START_KEY.to_string(),
-            input.clone(),
-            AssignmentStatus::Unassigned
-          );
-        }
+        self.init_task(
+          task_idx.clone(),
+          START_KEY.to_string(),
+          pipeline_inputs.clone()
+        );
       }
     }
   }
 
-  fn upsert_status(&mut self, task_id: TaskNode, key: String, input: TaskInput, status: AssignmentStatus) {
+  // TODO Make return type a Result
+  fn init_task(&mut self, task_idx: TaskNode, key: String, task_inputs: TaskInputs) {
+    for input in task_inputs {
+      self.upsert_status(
+        task_idx.clone(),
+        key.clone(),
+        input,
+        AssignmentStatus::Unassigned
+      );
+    }
+  }
+
+  // TODO Make return type a Result
+  fn upsert_status(
+    &mut self,
+    task_id: TaskNode,
+    key: String,
+    input: TaskInput,
+    status: AssignmentStatus
+  ) {
     // Store -[TaskNode]-> KeyStore -[Key]-> InputStore -[TaskInput]-> Status
     // If any key in the nested map is not there create the entry
     loop {
@@ -242,6 +309,41 @@ impl Pipeline {
 #[cfg(test)]
 mod tests {
   #[test]
+  fn test_next() {
+    // A pipeline with just one task and one input
+    let mut test_pipeline = super::Pipeline::new();
+    let task1 = test_pipeline.add_task(super::ATask::CountWords);
+    let mut task_pipeline = test_pipeline.build();
+    let task_input = super::TaskInput {
+      machine_addr: "http://some.machine".to_string(),
+      file: "some_file.txt".to_string(),
+    };
+    let task_inputs = vec![task_input.clone()];
+    // Init should populate store immediatelly
+    task_pipeline.init(task_inputs.clone());
+
+    let key = super::START_KEY.to_string();
+
+    let expected = super::TaskAssignment {
+      task: super::ATask::CountWords,
+      input: task_inputs.clone(),
+      task_id: task1.index() as u32,
+    };
+
+    // Only one task in the pipeline
+    assert_eq!(task_pipeline.next(), Some(expected));
+    // Simulate task finish
+    task_pipeline.upsert_status(
+      task1.clone(),
+      key.clone(),
+      task_input.clone(),
+      super::AssignmentStatus::Finished,
+    );
+    // No task left
+    assert!(task_pipeline.is_finished());
+  }
+
+  #[test]
   fn test_init() {
     let mut test_pipeline = super::Pipeline::new();
     let task1 = test_pipeline.add_task(super::ATask::CountWords);
@@ -260,7 +362,7 @@ mod tests {
     };
     let task_inputs = vec![task_input.clone()];
 
-    // Init shoud populate store immediatelly
+    // Init should populate store immediatelly
     task_pipeline.init(task_inputs);
 
     let key = super::START_KEY.to_string();

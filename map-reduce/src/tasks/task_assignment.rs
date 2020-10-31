@@ -39,11 +39,11 @@ impl ATask {
 }
 
 
-#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TaskAssignment {
     pub task: ATask,
     pub input: TaskInputs,
-    pub task_id: i32,
+    pub task_id: u32,
 }
 
 
