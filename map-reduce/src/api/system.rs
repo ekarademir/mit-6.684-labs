@@ -218,7 +218,7 @@ mod tests {
         let task_assignment = serde_json::json!(
             {
                 "task": "CountWords",
-                "task_id": "task_id",
+                "task_id": 42,
                 "input": [{
                     "machine_addr": "http://some.machine",
                     "file": "some_file.txt"
