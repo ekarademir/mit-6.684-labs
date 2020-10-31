@@ -139,44 +139,43 @@ impl Pipeline {
     maybe_result: Option<TaskInput>  // At least, final task will not give a result
   ) -> Result<(), PipelineError> {
     let task_id = graph::NodeIndex::new(task_id as usize);
-    if let Ok(store) = self.store.clone().read() {
+    if let Ok(store) = self.store.read() {
       if let Some(key_store) = store.get(&task_id) {
         if let Some(input_store) = key_store.get(&key) {
           if let Some(_) = input_store.get(&finished) {
-            // Update the old entry
-            self.upsert_status(task_id, key, finished, AssignmentStatus::Finished);
-            if let Some(result) = maybe_result {
-              // There is some resulting file, insert new entry to all subsequent tasks
-              if let Some(result_key) = maybe_result_key {
-                for next_task in self.next_tasks(&task_id) {
-                  self.upsert_status(
-                    task_id,
-                    result_key.clone(),
-                    result.clone(),
-                    AssignmentStatus::Unassigned
-                  );
-                }
-                Ok(())
-              } else {
-                // Result file is provided but result key is missing
-                Err(PipelineError::ResultKeyMissing)
-              }
-            } else {
-              // There is no result so nothing new to insert
-              Ok(())
-            }
+            // We've found the task input, it can now be updated
+            // HACK Updating will be done after returning the read key
           } else {
-            Err(PipelineError::TaskInputNotFound)
+            return Err(PipelineError::TaskInputNotFound);
           }
         } else {
-          Err(PipelineError::KeyNotFound)
+          return Err(PipelineError::KeyNotFound);
         }
       } else {
-        Err(PipelineError::TaskIdNotFound)
+        return Err(PipelineError::TaskIdNotFound);
       }
     } else {
-      Err(PipelineError::CantReadStore)
+      return Err(PipelineError::CantReadStore);
     }
+    // Update the old entry
+    self.upsert_status(task_id, key, finished, AssignmentStatus::Finished);
+    if let Some(result) = maybe_result {
+      // There is some resulting file, insert new entry to all subsequent tasks
+      if let Some(result_key) = maybe_result_key {
+        for next_task in self.next_tasks(&task_id) {
+          self.upsert_status(
+            next_task,
+            result_key.clone(),
+            result.clone(),
+            AssignmentStatus::Unassigned
+          );
+        }
+      } else {
+        // Result file is provided but result key is missing
+        return Err(PipelineError::ResultKeyMissing);
+      }
+    }
+    Ok(())
   }
 
   pub fn is_finished(&self) -> bool {
@@ -309,7 +308,7 @@ impl Pipeline {
 #[cfg(test)]
 mod tests {
   #[test]
-  fn test_next() {
+  fn test_single_task() {
     // A pipeline with just one task and one input
     let mut test_pipeline = super::Pipeline::new();
     let task1 = test_pipeline.add_task(super::ATask::CountWords);
@@ -333,12 +332,16 @@ mod tests {
     // Only one task in the pipeline
     assert_eq!(task_pipeline.next(), Some(expected));
     // Simulate task finish
-    task_pipeline.upsert_status(
-      task1.clone(),
+    match task_pipeline.finished_task(
+      task1.index() as u32,
       key.clone(),
       task_input.clone(),
-      super::AssignmentStatus::Finished,
-    );
+      None,
+      None
+    ) {
+      Ok(()) => assert!(true),
+      Err(_) => assert!(false) // Shouldn't reach this branch
+    }
     // No task left
     assert!(task_pipeline.is_finished());
   }
