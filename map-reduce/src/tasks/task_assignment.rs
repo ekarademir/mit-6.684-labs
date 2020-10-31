@@ -1,8 +1,6 @@
 use log::debug;
 use serde::{Deserialize, Serialize};
 
-use super::pipeline::TaskNode;
-
 // TODO Probably a macro to register a task which,
 //    * Copies the function
 //      * Either converts function_case to CamelCase or gets also ATask name
@@ -23,6 +21,7 @@ pub type TaskInputs = Vec<TaskInput>;
 pub enum ATask {
     CountWords,
     SumCounts,
+    FinalTask,
 }
 
 impl ATask {

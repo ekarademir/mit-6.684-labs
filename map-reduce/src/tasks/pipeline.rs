@@ -20,7 +20,7 @@ use super::task_assignment::{
 const START_KEY: &str = "GRAPH_START";
 const REASSIGN_TRESHOLD:Duration = Duration::from_secs(60 * 5); // 5 minutes
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 enum AssignmentStatus {
   Unassigned,
   Assigned(Instant),
@@ -87,8 +87,12 @@ impl PipelineBuilder {
     linear
   }
 
-  pub fn build(self) -> Pipeline {
+  pub fn build(mut self) -> Pipeline {
     let ordered = self.linearize();
+    let final_task = self.add_task(ATask::FinalTask);
+    // TODO reverse from linearize and until we reach a node without outgoing edges
+    //      add adge from the nodes to this final task
+
     let store = Arc::new(
       RwLock::new(
         TaskStoreInner::new()
@@ -125,6 +129,15 @@ impl Index<&TaskNode> for Pipeline {
   }
 }
 
+// Kind of Option but with three outcomes
+#[derive(Debug, PartialEq)]
+pub enum NextTask {
+  Ready(TaskAssignment),
+  Waiting,
+  Finished,
+}
+
+// TODO Refactor: from below impl it looks like TaskStore should be another struct with lookups etc.
 impl Pipeline {
   pub fn new() -> PipelineBuilder {
     PipelineBuilder::new()
@@ -139,23 +152,10 @@ impl Pipeline {
     maybe_result: Option<TaskInput>  // At least, final task will not give a result
   ) -> Result<(), PipelineError> {
     let task_id = graph::NodeIndex::new(task_id as usize);
-    if let Ok(store) = self.store.read() {
-      if let Some(key_store) = store.get(&task_id) {
-        if let Some(input_store) = key_store.get(&key) {
-          if let Some(_) = input_store.get(&finished) {
-            // We've found the task input, it can now be updated
-            // HACK Updating will be done after returning the read key
-          } else {
-            return Err(PipelineError::TaskInputNotFound);
-          }
-        } else {
-          return Err(PipelineError::KeyNotFound);
-        }
-      } else {
-        return Err(PipelineError::TaskIdNotFound);
-      }
-    } else {
-      return Err(PipelineError::CantReadStore);
+    // Check if there is a task input in store
+    match self.get_task_input_status(task_id, key.clone(), finished.clone()) {
+      Err(x) => return Err(x),
+      _ => {}
     }
     // Update the old entry
     self.upsert_status(task_id, key, finished, AssignmentStatus::Finished);
@@ -179,38 +179,53 @@ impl Pipeline {
   }
 
   pub fn is_finished(&self) -> bool {
-    None == self.next()
+    NextTask::Finished == self.next()
   }
 
-  pub fn next(&self) -> Option<TaskAssignment> {
+  pub fn next(&self) -> NextTask {
     for (task_idx, key_store) in self.store.read().unwrap().iter() {
       for (key, input_store) in key_store.iter() {
-        for (task_input, status) in input_store.iter() {
-          match status {
-            AssignmentStatus::Unassigned => {
-              let task = self[task_idx];
-              let input = vec![task_input.clone()];
-              let task_id = task_idx.index() as u32;
-              return Some(
-                TaskAssignment {task, input, task_id,}
-              );
-            },
-            AssignmentStatus::Assigned(t) => {
-              if Instant::now().duration_since(*t) > REASSIGN_TRESHOLD {
+        // We need to check if this task is a map or reduce
+        if self[task_idx].is_reduce() {
+          if self.have_parents_finished(&task_idx) {
+            let task = self[task_idx];
+            let input = self.reduce_task_inputs(&task_idx, key.clone());
+            let task_id = task_idx.index() as u32;
+            return NextTask::Ready(
+              TaskAssignment {task, input, task_id,}
+            );
+          } else {
+            return NextTask::Waiting;
+          }
+        } else {
+          // This task is a map we don't need to check if parent tasks have finished
+          for (task_input, status) in input_store.iter() {
+            match status {
+              AssignmentStatus::Unassigned => {
                 let task = self[task_idx];
                 let input = vec![task_input.clone()];
                 let task_id = task_idx.index() as u32;
-                return Some(
+                return NextTask::Ready(
                   TaskAssignment {task, input, task_id,}
                 );
-              }
-            },
-            _ => continue
+              },
+              AssignmentStatus::Assigned(t) => {
+                if Instant::now().duration_since(*t) > REASSIGN_TRESHOLD {
+                  let task = self[task_idx];
+                  let input = vec![task_input.clone()];
+                  let task_id = task_idx.index() as u32;
+                  return NextTask::Ready(
+                    TaskAssignment {task, input, task_id,}
+                  );
+                }
+              },
+              _ => continue
+            }
           }
         }
       }
     }
-    None
+    NextTask::Finished
   }
 
   // TODO Make return type a Result
@@ -223,6 +238,85 @@ impl Pipeline {
           pipeline_inputs.clone()
         );
       }
+    }
+  }
+
+  fn reduce_task_inputs(&self, &task_id: &TaskNode, key: String) -> TaskInputs {
+    let mut inputs = TaskInputs::new();
+    let store = self.store.read().unwrap();
+    if let Some(key_store) = store.get(&task_id) {
+      if let Some(input_store) = key_store.get(&key) {
+        for input in input_store.keys() {
+          inputs.push(input.clone());
+        }
+      }
+    }
+    inputs
+  }
+
+  // TODO task check can be optimized with some caching
+  fn have_parents_finished(&self, &task_id: &TaskNode) -> bool {
+    for parent in self.previous_tasks(&task_id) {
+      if !self.task_finished(&parent) {
+        return false;
+      }
+    }
+    true
+  }
+
+  // TODO task check can be optimized with some caching
+  fn task_finished(&self, &task_id: &TaskNode) -> bool {
+    // Task is finished when itself and all parents finished
+    // For each parent see if task is finished for that parent
+    for parent in self.previous_tasks(&task_id) {
+      return self.task_finished(&parent);
+    }
+
+    // Now check if my tasks are finished
+    if let Ok(store) = self.store.read() {
+      if let Some(key_store) = store.get(&task_id) {
+        // Scan all inputs in all key stores
+        for input_store in key_store.values() {
+          for input in input_store.values() {
+            match input {
+              AssignmentStatus::Finished => {},
+              // If there are Assigned and Unassigned tasks this task is not finished
+              _ => return false,
+            }
+          }
+        }
+        // All inputs in the key stores are finished so this task is finished
+        return true;
+      } else {
+        return false;
+      }
+    } else {
+      return false;
+    }
+  }
+
+  fn get_task_input_status(
+    &self,
+    task_id: TaskNode,
+    key: String,
+    task_input: TaskInput
+  ) -> Result<AssignmentStatus, PipelineError> {
+    if let Ok(store) = self.store.read() {
+      if let Some(key_store) = store.get(&task_id) {
+        if let Some(input_store) = key_store.get(&key) {
+          if let Some(assignment_status) = input_store.get(&task_input) {
+            Ok(assignment_status.clone())
+          } else {
+            return Err(PipelineError::TaskInputNotFound);
+          }
+        } else {
+          return Err(PipelineError::KeyNotFound);
+        }
+      } else {
+        return Err(PipelineError::TaskIdNotFound);
+      }
+    } else {
+      return Err(PipelineError::CantReadStore);
     }
   }
 
@@ -307,18 +401,82 @@ impl Pipeline {
 
 #[cfg(test)]
 mod tests {
+  // #[test]
+  // fn test_linear_pipeline() {
+  //   // task1 -> task2 -> end
+  //   let mut test_pipeline = super::Pipeline::new();
+  //   let task1 = test_pipeline.add_task(super::ATask::CountWords);
+  //   let task2 = test_pipeline.add_task(super::ATask::SumCounts);
+  //   test_pipeline.order_tasks(task1, task2);
+  //   let mut task_pipeline = test_pipeline.build();
+
+  //   // Form inputs
+  //   let pipeline_input1 = super::TaskInput {
+  //     machine_addr: "http://some.machine".to_string(),
+  //     file: "some_file1.txt".to_string(),
+  //   };
+  //   let pipeline_input2 = super::TaskInput {
+  //     machine_addr: "http://other.machine".to_string(),
+  //     file: "some_file2.txt".to_string(),
+  //   };
+  //   let pipeline_inputs = vec![
+  //     pipeline_input1.clone(),
+  //     pipeline_input2.clone(),
+  //   ];
+
+  //   // Form results
+  //   let task_result1 = super::TaskInput {
+  //     machine_addr: "http://some.machine".to_string(),
+  //     file: "result_file1.txt".to_string(),
+  //   };
+  //   let task_result2 = super::TaskInput {
+  //     machine_addr: "http://other.machine".to_string(),
+  //     file: "result_file2.txt".to_string(),
+  //   };
+
+  //   // Initiate pipeline which will populate the first task
+  //   task_pipeline.init(pipeline_inputs.clone());
+
+  //   let start_key = super::START_KEY.to_string();
+
+  //   let expected = super::TaskAssignment {
+  //     task: super::ATask::CountWords,
+  //     input: task_inputs.clone(),
+  //     task_id: task1.index() as u32,
+  //   };
+
+  //   // Only one task in the pipeline
+  //   assert_eq!(task_pipeline.next(), Some(expected));
+  //   // Simulate task finish
+  //   match task_pipeline.finished_task(
+  //     task1.index() as u32,
+  //     key.clone(),
+  //     task_input.clone(),
+  //     None,
+  //     None
+  //   ) {
+  //     Ok(()) => assert!(true),
+  //     Err(_) => assert!(false) // Shouldn't reach this branch
+  //   }
+  //   // No task left
+  //   assert!(task_pipeline.is_finished());
+  // }
+
   #[test]
   fn test_single_task() {
     // A pipeline with just one task and one input
     let mut test_pipeline = super::Pipeline::new();
     let task1 = test_pipeline.add_task(super::ATask::CountWords);
     let mut task_pipeline = test_pipeline.build();
+
+    // Form inputs
     let task_input = super::TaskInput {
       machine_addr: "http://some.machine".to_string(),
       file: "some_file.txt".to_string(),
     };
     let task_inputs = vec![task_input.clone()];
-    // Init should populate store immediatelly
+
+    // Kick off pipeline
     task_pipeline.init(task_inputs.clone());
 
     let key = super::START_KEY.to_string();
@@ -330,7 +488,7 @@ mod tests {
     };
 
     // Only one task in the pipeline
-    assert_eq!(task_pipeline.next(), Some(expected));
+    assert_eq!(task_pipeline.next(), super::NextTask::Ready(expected));
     // Simulate task finish
     match task_pipeline.finished_task(
       task1.index() as u32,
