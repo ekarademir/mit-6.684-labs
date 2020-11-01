@@ -92,57 +92,56 @@ async fn wait_for_task(
 
 async fn run_pipeline(state: MachineState) {
     // TODO (Optional) Implement a minimum worker threashold
-    // TODO This needs refactoring and rethinking. Pipeline must be defined by Tasks module.
-    //          Hence tasks are iterated from pipeline.
+    // TODO Make use of Pipeline
     let workers = {
         let state = state.read().unwrap();
         state.workers.clone()
     };
 
-    let first_task = tasks::TaskAssignment {
-        task: tasks::ATask::CountWords,
-        task_id: 42,
-        input: vec![tasks::TaskInput {
-            machine_addr: "http://some.machine".to_string(),
-            file: "some_file.txt".to_string(),
-        }],
-    };
+    // let first_task = tasks::TaskAssignment {
+    //     task: tasks::ATask::CountWords,
+    //     task_id: 42,
+    //     input: vec![tasks::TaskInput {
+    //         machine_addr: "http://some.machine".to_string(),
+    //         file: "some_file.txt".to_string(),
+    //     }],
+    // };
 
-    {
-        debug!("Assigning tasks to workers");
-        loop {
-            debug!("Trying to get read lock on Workers list");
-            if let Ok(workers) = workers.read() {
-                debug!("Acquired read lock on Workers");
-                if workers.len() > 0 {
-                    debug!("There are workers registered.");
-                    let mut task_assigned = false;
-                    for worker in workers.iter() {
-                        debug!("Assigning {:?} to {:?}", first_task.task, worker.addr);
-                        if let Ok(task_assign_response) = worker.assign_task(&first_task).await {
-                            debug!("TASK ASSIGN RESPONSE {:?}", task_assign_response);
-                            task_assigned = true;
-                            break;
-                        } else {
-                            warn!("Couldn't assign task to worker {:?}, skipping.", worker.addr);
-                        }
-                    }
-                    if task_assigned {
-                        debug!("Task assigned. Finishing the calculation");
-                        break;
-                    } else {
-                        warn!("Couldn't assign the task yet.");
-                    }
-                } else {
-                    warn!("No workers registered yet to run tasks.");
-                }
-            } else {
-                debug!("Couldn't acquire read lock on workers");
-            }
-            debug!("Waiting {:?}", LOCK_WAIT_DURATION);
-            thread::sleep(LOCK_WAIT_DURATION);
-        }
-    }
+    // {
+    //     debug!("Assigning tasks to workers");
+    //     loop {
+    //         debug!("Trying to get read lock on Workers list");
+    //         if let Ok(workers) = workers.read() {
+    //             debug!("Acquired read lock on Workers");
+    //             if workers.len() > 0 {
+    //                 debug!("There are workers registered.");
+    //                 let mut task_assigned = false;
+    //                 for worker in workers.iter() {
+    //                     debug!("Assigning {:?} to {:?}", first_task.task, worker.addr);
+    //                     if let Ok(task_assign_response) = worker.assign_task(&first_task).await {
+    //                         debug!("TASK ASSIGN RESPONSE {:?}", task_assign_response);
+    //                         task_assigned = true;
+    //                         break;
+    //                     } else {
+    //                         warn!("Couldn't assign task to worker {:?}, skipping.", worker.addr);
+    //                     }
+    //                 }
+    //                 if task_assigned {
+    //                     debug!("Task assigned. Finishing the calculation");
+    //                     break;
+    //                 } else {
+    //                     warn!("Couldn't assign the task yet.");
+    //                 }
+    //             } else {
+    //                 warn!("No workers registered yet to run tasks.");
+    //             }
+    //         } else {
+    //             debug!("Couldn't acquire read lock on workers");
+    //         }
+    //         debug!("Waiting {:?}", LOCK_WAIT_DURATION);
+    //         thread::sleep(LOCK_WAIT_DURATION);
+    //     }
+    // }
 }
 
 pub fn spawn_inner(
@@ -238,6 +237,7 @@ mod tests {
         let task_asignment = tasks::TaskAssignment {
             task: tasks::ATask::CountWords,
             task_id: 42,
+            key: "SomeKey".to_string(),
             input: vec![tasks::TaskInput {
                 machine_addr: "http://other_worker.machine".to_string(),
                 file: "/some/file".to_string(),
@@ -317,6 +317,7 @@ mod tests {
         let task_asignment = tasks::TaskAssignment {
             task: tasks::ATask::CountWords,
             task_id: 42,
+            key: "SomeKey".to_string(),
             input: vec![tasks::TaskInput {
                 machine_addr: "http://other_worker.machine".to_string(),
                 file: "/some/file".to_string(),

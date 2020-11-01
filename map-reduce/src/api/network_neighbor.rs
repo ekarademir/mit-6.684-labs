@@ -274,6 +274,7 @@ mod tests {
             {
                 "task": "CountWords",
                 "task_id": 42,
+                "key": "SomeKey",
                 "input": [{
                     "machine_addr": "http://some.machine",
                     "file": "some_file.txt"
@@ -303,6 +304,7 @@ mod tests {
 
         let test_task = tasks::TaskAssignment {
             task: tasks::ATask::CountWords,
+            key: "SomeKey".to_string(),
             input: vec![tasks::TaskInput {
                 machine_addr: "http://some.machine".to_string(),
                 file: "some_file.txt".to_string(),
@@ -340,6 +342,7 @@ mod tests {
 
         let test_task = tasks::TaskAssignment {
             task: tasks::ATask::CountWords,
+            key: "SomeKey".to_string(),
             input: vec![tasks::TaskInput {
                 machine_addr: "http://some.machine".to_string(),
                 file: "some_file.txt".to_string(),
@@ -373,6 +376,7 @@ mod tests {
 
         let test_task = tasks::TaskAssignment {
             task: tasks::ATask::CountWords,
+            key: "SomeKey".to_string(),
             input: vec![tasks::TaskInput {
                 machine_addr: "http://some.machine".to_string(),
                 file: "some_file.txt".to_string(),

@@ -26,7 +26,6 @@ pub enum ATask {
 
 #[derive(PartialEq, Debug)]
 pub enum TaskKind {
-
     Map,
     Reduce,
     Final,

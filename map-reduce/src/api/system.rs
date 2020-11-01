@@ -219,6 +219,7 @@ mod tests {
             {
                 "task": "CountWords",
                 "task_id": 42,
+                "key": "SomeKey",
                 "input": [{
                     "machine_addr": "http://some.machine",
                     "file": "some_file.txt"
