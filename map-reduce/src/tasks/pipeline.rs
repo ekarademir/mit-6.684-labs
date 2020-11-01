@@ -87,11 +87,32 @@ impl PipelineBuilder {
     linear
   }
 
+  fn next_tasks(&self, &idx: &TaskNode) -> Vec<TaskNode> {
+    let mut nexts: Vec<TaskNode> = Vec::new();
+    for neighbor in self.inner.neighbors_directed(idx, petgraph::Direction::Outgoing) {
+      nexts.push(neighbor);
+    }
+    nexts
+  }
+
+  fn is_at_end(&self, &idx: &TaskNode) -> bool {
+    let nexts = self.next_tasks(&idx);
+    nexts.len() == 0
+  }
+
   pub fn build(mut self) -> Pipeline {
-    let ordered = self.linearize();
+    let reversed = {
+      let mut a = self.linearize();
+      a.reverse();
+      a
+    };
     let final_task = self.add_task(ATask::FinalTask);
-    // TODO reverse from linearize and until we reach a node without outgoing edges
-    //      add adge from the nodes to this final task
+    for task in reversed {
+      if self.is_at_end(&task) {
+        self.order_tasks(task, final_task);
+      }
+    }
+    let ordered = self.linearize();
 
     let store = Arc::new(
       RwLock::new(
