@@ -207,7 +207,6 @@ pub async fn assign_task(
 #[cfg(test)]
 mod tests {
     #[tokio::test]
-    #[cfg_attr(feature = "dont_test_this", ignore)]
     async fn test_endpoint_assign_task() {
         // Uncomment for debugging
         // let _ = env_logger::try_init();
@@ -219,10 +218,11 @@ mod tests {
         let task_assignment = serde_json::json!(
             {
                 "task": "CountWords",
-                "input": {
+                "task_id": 42,
+                "input": [{
                     "machine_addr": "http://some.machine",
                     "file": "some_file.txt"
-                }
+                }]
             }
         );
 

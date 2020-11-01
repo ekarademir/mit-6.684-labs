@@ -184,7 +184,6 @@ impl Hash for NetworkNeighbor {
 #[cfg(test)]
 mod tests {
     #[tokio::test]
-    #[cfg_attr(feature = "dont_test_this", ignore)]
     async fn test_sending_heartbeat() {
         // Uncomment for debugging
         // let _ = env_logger::try_init();
@@ -234,7 +233,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[cfg_attr(feature = "dont_test_this", ignore)]
     async fn test_sending_heartbeat_fail_offline() {
         // Uncomment for debugging
         // let _ = env_logger::try_init();
@@ -257,7 +255,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[cfg_attr(feature = "dont_test_this", ignore)]
     async fn test_assigning_task() {
         // Uncomment for debugging
         // let _ = env_logger::try_init();
@@ -276,10 +273,11 @@ mod tests {
         let task_assignment = serde_json::json!(
             {
                 "task": "CountWords",
-                "input": {
+                "task_id": 42,
+                "input": [{
                     "machine_addr": "http://some.machine",
                     "file": "some_file.txt"
-                }
+                }]
             }
         );
 
@@ -305,10 +303,11 @@ mod tests {
 
         let test_task = tasks::TaskAssignment {
             task: tasks::ATask::CountWords,
-            input: tasks::TaskInput {
+            input: vec![tasks::TaskInput {
                 machine_addr: "http://some.machine".to_string(),
                 file: "some_file.txt".to_string(),
-            },
+            }],
+            task_id: 42,
         };
 
         // Run test
@@ -323,7 +322,6 @@ mod tests {
 
     }
     #[tokio::test]
-    #[cfg_attr(feature = "dont_test_this", ignore)]
     async fn test_assigning_task_notready() {
         // Uncomment for debugging
         // let _ = env_logger::try_init();
@@ -342,10 +340,11 @@ mod tests {
 
         let test_task = tasks::TaskAssignment {
             task: tasks::ATask::CountWords,
-            input: tasks::TaskInput {
+            input: vec![tasks::TaskInput {
                 machine_addr: "http://some.machine".to_string(),
                 file: "some_file.txt".to_string(),
-            },
+            }],
+            task_id: 42,
         };
 
         // Run test
@@ -356,7 +355,6 @@ mod tests {
 
     }
     #[tokio::test]
-    #[cfg_attr(feature = "dont_test_this", ignore)]
     async fn test_assigning_task_offline() {
         // Uncomment for debugging
         // let _ = env_logger::try_init();
@@ -375,10 +373,11 @@ mod tests {
 
         let test_task = tasks::TaskAssignment {
             task: tasks::ATask::CountWords,
-            input: tasks::TaskInput {
+            input: vec![tasks::TaskInput {
                 machine_addr: "http://some.machine".to_string(),
                 file: "some_file.txt".to_string(),
-            },
+            }],
+            task_id: 42,
         };
 
         // Run test

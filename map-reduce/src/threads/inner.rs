@@ -101,10 +101,11 @@ async fn run_pipeline(state: MachineState) {
 
     let first_task = tasks::TaskAssignment {
         task: tasks::ATask::CountWords,
-        input: tasks::TaskInput {
+        task_id: 42,
+        input: vec![tasks::TaskInput {
             machine_addr: "http://some.machine".to_string(),
             file: "some_file.txt".to_string(),
-        },
+        }],
     };
 
     {
@@ -220,7 +221,6 @@ pub fn spawn_inner(
 
 mod tests {
     #[tokio::test]
-    #[cfg_attr(feature = "dont_test_this", ignore)]
     async fn test_wait_for_task_listens_until_channel_is_closed() {
         // Uncomment for debugging
         // let _ = env_logger::try_init();
@@ -237,10 +237,11 @@ mod tests {
 
         let task_asignment = tasks::TaskAssignment {
             task: tasks::ATask::CountWords,
-            input: tasks::TaskInput {
+            task_id: 42,
+            input: vec![tasks::TaskInput {
                 machine_addr: "http://other_worker.machine".to_string(),
                 file: "/some/file".to_string(),
-            }
+            }]
         };
 
         // Run test
@@ -260,14 +261,13 @@ mod tests {
         });
     }
     #[tokio::test]
-    #[cfg_attr(feature = "dont_test_this", ignore)]
     async fn test_wait_for_task() {
         // Uncomment for debugging
         // let _ = env_logger::try_init();
 
         use std::collections::HashSet;
         use std::net::SocketAddr;
-        use std::sync::{Arc, Mutex, RwLock};
+        use std::sync::{Arc, RwLock};
         use std::time::Instant;
 
         use tokio::sync::{mpsc, oneshot};
@@ -316,10 +316,11 @@ mod tests {
 
         let task_asignment = tasks::TaskAssignment {
             task: tasks::ATask::CountWords,
-            input: tasks::TaskInput {
+            task_id: 42,
+            input: vec![tasks::TaskInput {
                 machine_addr: "http://other_worker.machine".to_string(),
                 file: "/some/file".to_string(),
-            }
+            }]
         };
 
         // Run test
