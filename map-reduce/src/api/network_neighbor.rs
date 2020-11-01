@@ -61,6 +61,10 @@ impl Clone for NetworkNeighbor {
 }
 
 impl NetworkNeighbor {
+    pub async fn finish_task(&self, task: &tasks::TaskAssignment) -> Result<(), errors::ResponseError> {
+        unimplemented!();
+    }
+
     pub async fn assign_task(&self, task: &tasks::TaskAssignment) -> Result<TaskAssignResponse, errors::ResponseError> {
         if self.status != Status::Ready {
             return Err(errors::ResponseError::NotReadyYet);

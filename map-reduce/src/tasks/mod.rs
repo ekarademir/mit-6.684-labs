@@ -18,4 +18,9 @@ pub use task_assignment::{
     ATask,
     TaskAssignment,
     TaskInput,
+    FinishedTask,
+};
+
+pub use pipeline::{
+    Pipeline,
 };

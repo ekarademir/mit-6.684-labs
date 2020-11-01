@@ -204,6 +204,16 @@ pub async fn assign_task(
     }
 }
 
+pub async fn finished_task(
+    req: Request<Body>,
+    mut result_sender: mpsc::Sender<(
+        tasks::FinishedTask,
+        oneshot::Sender<bool>
+    )>
+) -> String {
+    unimplemented!();
+}
+
 #[cfg(test)]
 mod tests {
     #[tokio::test]

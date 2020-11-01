@@ -70,7 +70,14 @@ async fn wait_for_task(
                 ack_tx.send(false).unwrap();
             }
             info!("Starting execution of {:?}, with input {:?}", task.task, task.input);
-            task.execute().await;
+
+            let task_result = task.execute().await;
+            for (key, value) in task_result {
+                // TODO
+                // Write values to files
+                // Send finish dignal to master
+            }
+
             info!("Finished execution of {:?}, with input {:?}", task.task, task.input);
             // Loop until we get the write lock to machine state
             debug!("Finished task {:?}, setting myself Ready", task.task);
@@ -90,22 +97,35 @@ async fn wait_for_task(
     }
 }
 
-async fn run_pipeline(state: MachineState) {
+async fn run_pipeline(
+    state: MachineState,
+    pipeline: tasks::Pipeline,
+    mut result_funnel: mpsc::Receiver<(
+        tasks::FinishedTask,
+        oneshot::Sender<bool>
+    )>
+) {
+    // TODO add a task_finished funnel
     // TODO (Optional) Implement a minimum worker threashold
-    // TODO Make use of Pipeline
     let workers = {
         let state = state.read().unwrap();
         state.workers.clone()
     };
+    unimplemented!()
 
-    // let first_task = tasks::TaskAssignment {
-    //     task: tasks::ATask::CountWords,
-    //     task_id: 42,
-    //     input: vec![tasks::TaskInput {
-    //         machine_addr: "http://some.machine".to_string(),
-    //         file: "some_file.txt".to_string(),
-    //     }],
-    // };
+    // Get inputs from data folder and then init the pipeline
+    // Start pipeline loop
+    //   As long as there are workers
+    //        Get next assignment
+    //            If there is a next assignment,
+    //                Assign to a worker
+    //                Update assignment
+    //            If Finished break the loop  <------ LOOP BREAK
+    //            If wait continue
+    //   Try receiving from task_finished funnel
+    //     As long as there are items in the funnel
+    //        Mark finished assignment
+
 
     // {
     //     debug!("Assigning tasks to workers");
@@ -149,7 +169,8 @@ pub fn spawn_inner(
     task_funnel: mpsc::Receiver<(
         tasks::TaskAssignment,
         oneshot::Sender<bool>
-    )>
+    )>,
+    task_pipeline: tasks::Pipeline
 ) -> JoinHandle<()> {
     let main_state = state.clone();
     thread::Builder::new().name("Inner".into()).spawn(|| {
@@ -210,7 +231,7 @@ pub fn spawn_inner(
             }
             // Run tasks
             if my_kind == system::MachineKind::Master  {
-                run_pipeline(state).await;
+                run_pipeline(state, task_pipeline).await;
             } else { // Worker
                 wait_for_task(state, task_funnel).await;
             }

@@ -58,24 +58,38 @@ pub struct TaskAssignment {
     pub key: String,
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct FinishedTask {
+    pub task: ATask,
+    pub finished: TaskInput,
+    pub task_id: u32,
+    pub key: String,
+    pub result: TaskInput,
+    pub result_key: String,
+}
+
+
+pub type TaskResult = Vec<(String, String)>;
 
 impl TaskAssignment {
-    pub async fn execute(&self) {
+    pub async fn execute(&self) -> TaskResult {
         // TODO Pull the contents of the input and feed them into the functions
         match self.task {
             ATask::CountWords => count_words(&self.input).await,
             ATask::SumCounts => sum_counts(&self.input).await,
-            _ => {},
+            _ => TaskResult::new(),
         }
     }
 }
 
-async fn count_words(input: &TaskInputs) {
-    debug!("Counting words!!!!");
+async fn count_words(input: &TaskInputs) -> TaskResult {
+    debug!("Count words!");
+    TaskResult::new()
 }
 
-async fn sum_counts(input: &TaskInputs) {
-    debug!("Total Count!!!!");
+async fn sum_counts(input: &TaskInputs) -> TaskResult {
+    debug!("Sum counts!");
+    TaskResult::new()
 }
 
 

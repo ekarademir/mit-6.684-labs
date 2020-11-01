@@ -130,6 +130,8 @@ fn main() {
         )
     );
 
+    let pipeline = make_pipeline();
+
     // Kill trigger to server to shutdown gracefully.
     let (kill_tx, kill_rx) = oneshot::channel::<()>();
     // Kill trigger to heartbeat loop to shutdown gracefully.
@@ -149,7 +151,7 @@ fn main() {
     );
 
     let server_thread = threads::spawn_server(me.clone(), heartbeat_tx, task_tx, kill_rx);
-    let inner_thread = threads::spawn_inner(me.clone(), task_rx);
+    let inner_thread = threads::spawn_inner(me.clone(), task_rx, pipeline);
     let heartbeat_thread = threads::spawn_heartbeat(me.clone(), heartbeat_rx, heartbeat_kill_sw);
 
     if let Err(_) = inner_thread.join() {
@@ -160,6 +162,18 @@ fn main() {
     // Stop the heartbeat loop then wait for thread join.
     stop_hb_tx.send(()).unwrap();
     heartbeat_thread.join().unwrap();
+}
+
+fn make_pipeline() -> tasks::pipeline::Pipeline {
+    use tasks::{ATask, Pipeline};
+
+    let mut builder = Pipeline::new();
+    let count_words = builder.add_task(ATask::CountWords);
+    let sum_counts = builder.add_task(ATask::SumCounts);
+
+    builder.order_tasks(count_words, sum_counts);
+
+    builder.build()
 }
 
 // TODO handle SIGTERM to kill threads too
