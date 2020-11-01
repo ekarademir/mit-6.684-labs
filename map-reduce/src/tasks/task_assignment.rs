@@ -24,16 +24,29 @@ pub enum ATask {
     FinalTask,
 }
 
+#[derive(PartialEq, Debug)]
+pub enum TaskKind {
+
+    Map,
+    Reduce,
+    Final,
+}
+
 impl ATask {
-    pub fn is_map(&self) -> bool {
+    pub fn kind(&self) -> TaskKind {
         match self {
-            ATask::CountWords => true,
-            _ => false
+            ATask::CountWords => TaskKind::Map,
+            ATask::SumCounts => TaskKind::Reduce,
+            ATask::FinalTask => TaskKind::Final,
         }
     }
 
+    pub fn is_map(&self) -> bool {
+        self.kind() == TaskKind::Map
+    }
+
     pub fn is_reduce(&self) -> bool {
-        !self.is_map()
+        self.kind() == TaskKind::Reduce
     }
 }
 
@@ -43,6 +56,7 @@ pub struct TaskAssignment {
     pub task: ATask,
     pub input: TaskInputs,
     pub task_id: u32,
+    pub key: String,
 }
 
 
@@ -52,6 +66,7 @@ impl TaskAssignment {
         match self.task {
             ATask::CountWords => count_words(&self.input).await,
             ATask::SumCounts => sum_counts(&self.input).await,
+            _ => {},
         }
     }
 }
