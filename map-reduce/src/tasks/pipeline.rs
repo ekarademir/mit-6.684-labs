@@ -538,7 +538,7 @@ mod tests {
     use log::debug;
 
     // Uncomment for debugging
-    let _ = env_logger::try_init();
+    // let _ = env_logger::try_init();
 
     fn make_task_input(machine: &str, file: &str) -> super::TaskInput {
       super::TaskInput {
@@ -839,13 +839,6 @@ mod tests {
     );
     // No task left
     assert!(task_pipeline.is_finished());
-  }
-
-  #[test]
-  fn test_final_task_inserted() {
-    let mut test_pipeline = super::Pipeline::new();
-    let task1 = test_pipeline.add_task(super::ATask::CountWords);
-    let mut task_pipeline = test_pipeline.build();
   }
 
   #[test]
