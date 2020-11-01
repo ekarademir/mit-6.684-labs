@@ -135,7 +135,6 @@ pub enum PipelineError {
   KeyNotFound,
   TaskInputNotFound,
   CantReadStore,
-  ResultKeyMissing,
   MalformedTaskInputs,
 }
 
@@ -154,11 +153,20 @@ impl Index<&TaskNode> for Pipeline {
 }
 
 // Kind of Option but with three outcomes
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum NextTask {
   Ready(TaskAssignment),
   Waiting,
   Finished,
+}
+
+impl NextTask {
+  pub fn unpack(self) -> TaskAssignment {
+    match self {
+      NextTask::Ready(x) => x,
+      _ => panic!("I can only unpack NextTask::Ready"),
+    }
+  }
 }
 
 // TODO Refactor: from below impl it looks like TaskStore should be another struct with lookups etc.
@@ -296,22 +304,19 @@ impl Pipeline {
                 // Below is a bit hacky but should do the job. We can probably find a way to not to
                 // loop twice.
                 // Ideally the following loop shouldn't run more than one ieteration.
-                debug!("Checking if this task has been assigned or finished before");
-                for (_, status) in input_store.iter() {
-                  // If any of the task_inputs finished or are not to be reassigned, then there
-                  // is nothing to be reassigned. Keep waiting.
-                  match status {
-                    AssignmentStatus::Finished => return NextTask::Waiting,
-                    AssignmentStatus::Assigned(t) => if Instant::now().duration_since(*t) <= REASSIGN_TRESHOLD {
-                      debug!("Reassignment threahold has not passed");
-                      return NextTask::Waiting;
+                debug!("Checking if this key, {:?} has been assigned or finished before", key);
+                match input_store.values().next() {
+                  Some(status) =>
+                    match status {
+                      AssignmentStatus::Finished => continue,
+                      AssignmentStatus::Assigned(t) => if Instant::now().duration_since(*t) < REASSIGN_TRESHOLD { continue },
+                      _ => {}
                     },
-                    _ => break,
-                  }
+                  None => continue,
                 }
-                debug!("Collecting inputs");
                 // If we reach here, we can create the assignment, now loop for actually collecting
                 // the documents
+                debug!("Collecting inputs");
                 let inputs = input_store.keys()
                   .fold(TaskInputs::new(), |mut acc, task_input| {
                     acc.push(task_input.clone());
@@ -529,6 +534,254 @@ impl Pipeline {
 #[cfg(test)]
 mod tests {
   #[test]
+  fn test_triangle_pipeline() {
+    use log::debug;
+
+    // Uncomment for debugging
+    let _ = env_logger::try_init();
+
+    fn make_task_input(machine: &str, file: &str) -> super::TaskInput {
+      super::TaskInput {
+        machine_addr: machine.to_string(),
+        file: file.to_string()
+      }
+    }
+
+    fn compare_assignments(a1: super::TaskAssignment, a2: super::TaskAssignment, id_range:Vec<u32>) -> bool {
+      fn vec_comp (v1: super::TaskInputs, v2: super::TaskInputs) -> bool {
+        for x in v1.clone() {
+          if !v2.contains(&x) {
+            debug!("{:?} is not in {:?}", x, v2);
+            return false;
+          }
+        }
+
+        for x in v2 {
+          if !v1.contains(&x) {
+            debug!("{:?} is not in {:?}", x, v1);
+            return false;
+          }
+        }
+        true
+      }
+      a1.key == a2.key
+      && a1.task == a2.task
+      && id_range.contains(&a1.task_id)
+      && id_range.contains(&a2.task_id)
+      && vec_comp(a1.input, a2.input)
+    }
+
+    // Setup the pipeline like this
+    //
+    // task2(M)
+    //           -> task3(R)
+    // task1(M)
+    //
+
+    let mut pipeline = super::Pipeline::new();
+    let task1 = pipeline.add_task(super::ATask::CountWords);
+    let task2 = pipeline.add_task(super::ATask::CountWords);
+    let task3 = pipeline.add_task(super::ATask::SumCounts);
+    pipeline.order_tasks(task1, task3);
+    pipeline.order_tasks(task2, task3);
+    let mut pipeline = pipeline.build();
+
+    // Form input
+    let pipeline_input = make_task_input("http://some.machine", "some_file.txt");
+    let pipeline_inputs = vec![pipeline_input.clone()];
+
+    // Propagate the pipeline
+    // Init pipeline
+    pipeline.init(pipeline_inputs);
+    // Get next assignment out of pipeline
+    let next_assignment1 = pipeline.next();
+    // Assert this assignment
+    assert!(
+      compare_assignments(
+        next_assignment1.clone().unpack(),
+        super::TaskAssignment {
+          task_id: task1.index() as u32,
+          task: super::ATask::CountWords,
+          key: super::START_KEY.to_string(),
+          input: vec![pipeline_input.clone()]
+        },
+        vec![0, 1]
+      )
+    );
+    let assignment1 = next_assignment1.clone().unpack();
+    // Mark assignment1
+    assert!(
+      pipeline.update_assignment(
+        assignment1.task_id,
+        assignment1.key,
+        assignment1.input
+      ).is_ok()
+    );
+
+    // Get next assignment out of pipeline
+    let next_assignment2 = pipeline.next();
+    // Assert this assignment
+    assert!(
+      compare_assignments(
+        next_assignment2.clone().unpack(),
+        super::TaskAssignment {
+          task_id: task2.index() as u32,
+          task: super::ATask::CountWords,
+          key: super::START_KEY.to_string(),
+          input: vec![pipeline_input.clone()]
+        },
+        vec![0, 1]
+      )
+    );
+    let assignment2 = next_assignment2.clone().unpack();
+    // Mark assignment2
+    assert!(
+      pipeline.update_assignment(
+        assignment2.task_id,
+        assignment2.key,
+        assignment2.input
+      ).is_ok()
+    );
+
+    // Next task is Reduce so it should wait parents
+    assert_eq!(pipeline.next(), super::NextTask::Waiting);
+
+    // Finish assignment1
+    let next_key1 = "next1".to_string();
+    let next_result1 = make_task_input("http://final1.machine", "result_file1.txt");
+    let assignment1 = next_assignment1.unpack();
+    assert!(
+      pipeline.finished_task(
+        assignment1.task_id, assignment1.key, assignment1.input[0].clone(),
+        next_key1.clone(), next_result1.clone()
+      ).is_ok()
+    );
+
+    // Next task is Reduce so it should wait parents
+    assert_eq!(pipeline.next(), super::NextTask::Waiting);
+
+    // Finish assignment2 with two keys
+    let next_key2 = "next1".to_string();
+    let next_result2 = make_task_input ("http://final2.machine", "result_file2.txt");
+    let assignment2 = next_assignment2.clone().unpack();
+    assert!(
+      pipeline.finished_task(
+        assignment2.task_id, assignment2.key, assignment2.input[0].clone(),
+        next_key2.clone(), next_result2.clone()
+      ).is_ok()
+    );
+    let next_key3 = "next2".to_string();
+    let next_result3 = make_task_input ("http://final3.machine", "result_file3.txt");
+    let assignment2 = next_assignment2.clone().unpack();
+    assert!(
+      pipeline.finished_task(
+        assignment2.task_id, assignment2.key, assignment2.input[0].clone(),
+        next_key3.clone(), next_result3.clone()
+      ).is_ok()
+    );
+
+    // Move on to Reduce task
+    let key1 = next_key1; // Should be identical to next_key2
+    let input1_1 = next_result1;
+    let input1_2 = next_result2;
+    let key2 = next_key3;
+    let input2_1 = next_result3;
+
+    // Possible outcomes
+    let outcome1 = super::TaskAssignment {
+      task_id: task3.index() as u32,
+      task: super::ATask::SumCounts,
+      key: key1,
+      input: vec![
+        input1_1.clone(),
+        input1_2.clone(),
+      ]
+    };
+
+    let outcome2 = super::TaskAssignment {
+      task_id: task3.index() as u32,
+      task: super::ATask::SumCounts,
+      key: key2,
+      input: vec![
+        input2_1.clone(),
+      ]
+    };
+    // order of the key selection is not guarantied
+    // There should be two assignments
+    let next_assignment1 = pipeline.next();
+    assert!(
+      compare_assignments(
+        next_assignment1.clone().unpack(),
+        outcome1.clone(),
+        vec![2]
+      ) ||
+      compare_assignments(
+        next_assignment1.clone().unpack(),
+        outcome2.clone(),
+        vec![2]
+      )
+    );
+
+    // Update
+    let assignment1 = next_assignment1.clone().unpack();
+    assert!(
+      pipeline.update_assignment(
+        assignment1.task_id,
+        assignment1.key,
+        assignment1.input
+      ).is_ok()
+    );
+
+    let next_assignment2 = pipeline.next();
+    assert!(
+      compare_assignments(
+        next_assignment2.clone().unpack(),
+        outcome1.clone(),
+        vec![2]
+      ) ||
+      compare_assignments(
+        next_assignment2.clone().unpack(),
+        outcome2.clone(),
+        vec![2]
+      )
+    );
+
+    // Update
+    let assignment2 = next_assignment2.clone().unpack();
+    assert!(
+      pipeline.update_assignment(
+        assignment2.task_id,
+        assignment2.key,
+        assignment2.input
+      ).is_ok()
+    );
+
+    // Finish Reduce
+    let next_key1 = "reduce1".to_string();
+    let next_result1 = make_task_input ("http://final1.machine", "reduce1.txt");
+    let assignment1 = next_assignment1.unpack();
+    let next_key2 = "reduce2".to_string();
+    let next_result2 = make_task_input ("http://final2.machine", "reduce2.txt");
+    let assignment2 = next_assignment2.unpack();
+
+    assert!(
+      pipeline.finished_task(
+        assignment1.task_id, assignment1.key, assignment1.input[0].clone(),
+        next_key1.clone(), next_result1.clone()
+      ).is_ok()
+    );
+    assert!(
+      pipeline.finished_task(
+        assignment2.task_id, assignment2.key, assignment2.input[0].clone(),
+        next_key2.clone(), next_result2.clone()
+      ).is_ok()
+    );
+    // No task left
+    assert!(pipeline.is_finished());
+
+  }
+
+  #[test]
   fn test_single_task() {
     // Uncomment for debugging
     // let _ = env_logger::try_init();
@@ -567,25 +820,23 @@ mod tests {
     // Only one task in the pipeline
     assert_eq!(task_pipeline.next(), super::NextTask::Ready(expected_assignment.clone()));
     // Update assignment
-    match task_pipeline.update_assignment(
-      expected_assignment.task_id,
-      expected_assignment.key,
-      expected_assignment.input
-    ) {
-      Ok(()) => assert!(true),
-      Err(_) => assert!(false) // Shouldn't reach this branch
-    }
+    assert!(
+      task_pipeline.update_assignment(
+        expected_assignment.task_id,
+        expected_assignment.key,
+        expected_assignment.input
+      ).is_ok()
+    );
     // Simulate task finish
-    match task_pipeline.finished_task(
-      task1.index() as u32,
-      key.clone(),
-      task_input.clone(),
-      next_key.clone(),
-      next_input.clone()
-    ) {
-      Ok(()) => assert!(true),
-      Err(_) => assert!(false) // Shouldn't reach this branch
-    }
+    assert!(
+      task_pipeline.finished_task(
+        task1.index() as u32,
+        key.clone(),
+        task_input.clone(),
+        next_key.clone(),
+        next_input.clone()
+      ).is_ok()
+    );
     // No task left
     assert!(task_pipeline.is_finished());
   }
