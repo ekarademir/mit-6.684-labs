@@ -24,9 +24,11 @@ pub use task_assignment::{
     ATask,
     TaskAssignment,
     TaskInput,
+    TaskInputs,
     FinishedTask,
 };
 
 pub use pipeline::{
     Pipeline,
+    NextTask
 };

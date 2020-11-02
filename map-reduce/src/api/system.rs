@@ -266,7 +266,7 @@ pub async fn finished_task(
 pub async fn contents(
     filename: &str
 ) -> String {
-    // TODO HACK get the folder from MachineState
+    // TODO HACK get the folder from MachineState, also the entire read folders
     match File::open(
         format!("data/intermediate/{:}.txt", filename)
     ).await {
@@ -280,7 +280,24 @@ pub async fn contents(
                 .trim()
                 .to_string()
         },
-        Err(e) => ErrorResponse::internal_problem(e.to_string())
+        Err(_) => {
+            // Also try reading inputs folder
+            match File::open(
+                format!("data/inputs/{:}.txt", filename)
+            ).await {
+                Ok(mut f) => {
+                    let mut buffer = Vec::new();
+
+                    // read the whole file
+                    f.read_to_end(&mut buffer).await.unwrap();
+                    // respond with the whole content
+                    std::str::from_utf8(&buffer).unwrap()
+                        .trim()
+                        .to_string()
+                },
+                Err(e) => ErrorResponse::internal_problem(e.to_string())
+            }
+        }
     }
 
 }

@@ -1,12 +1,15 @@
 use std::fmt::Display;
+use std::fs;
 use std::net::SocketAddr;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::thread::{self, JoinHandle};
 
 use log::{debug, info, error, warn};
 use hyper::{Client, Uri, StatusCode};
 use tokio::runtime::Runtime;
 use tokio::sync::{mpsc, oneshot};
+use tokio::fs::File;
+use tokio::io::{self, AsyncWriteExt};
 
 use crate::api::{self, system};
 use crate::MachineState;
@@ -16,6 +19,8 @@ use crate::tasks;
 const RETRY_TIMES:usize = 4;
 const BOOT_WAIT_DURATION: Duration = Duration::from_millis(200);
 const LOCK_WAIT_DURATION: Duration = Duration::from_millis(500);
+const PIPELINE_LOOP_SLEEP: Duration = Duration::from_millis(1000);
+const MIN_WORKER_THRESHOLD: usize = 1;
 
 async fn probe_health <T: Display>(addr: T) -> Result<(), ()> {
     let client = Client::new();
@@ -52,6 +57,15 @@ async fn wait_for_master(master_uri: Uri) -> Result<(), ()>{
     probe_health(master_uri.host_port()).await
 }
 
+async fn write_intermediate(filename: &String, content: String) -> io::Result<()> {
+    let mut buffer = File::create(
+        format!("/data/intermediate/{:}.txt", filename)
+    ).await?;
+
+    buffer.write_all(content.as_bytes()).await?;
+    Ok(())
+}
+
 async fn wait_for_task(
     state: MachineState,
     mut task_funnel: mpsc::Receiver<(
@@ -60,6 +74,18 @@ async fn wait_for_task(
     )>
 ) {
     info!("Waiting for tasks");
+    let (
+        host,
+        boot_instant,
+        master,
+    ) = {
+        let state = state.read().unwrap();
+        (
+            state.host.clone(),
+            state.boot_instant.clone(),
+            state.master.clone(),
+        )
+    };
     while let Some((task, ack_tx)) = task_funnel.recv().await {
         {
             debug!("Received task {:?}, setting myself Busy", task.task);
@@ -73,9 +99,35 @@ async fn wait_for_task(
 
             let task_result = task.execute().await;
             for (key, value) in task_result {
-                // TODO
-                // Write values to files
-                // Send finish dignal to master
+                let filename = format!(
+                    "int_{:}_{:}_{:}",
+                    host, key, Instant::now().duration_since(boot_instant.clone()).as_micros()
+                );
+                debug!("Writing result to {:?}", filename);
+                match write_intermediate(&filename, value).await {
+                    Ok(()) => {
+                        debug!("Write successful, signaling to master");
+                        let finished_task = tasks::FinishedTask {
+                            task: task.task,
+                            finished: task.input.clone(),
+                            task_id: task.task_id,
+                            key: task.key.clone(),
+                            result_key: key.clone(),
+                            result: tasks::TaskInput {
+                                machine_addr: host.clone(),
+                                file: filename.clone()
+                            }
+                        };
+                        match master.clone().unwrap().finish_task(&finished_task).await {
+                            Ok(_) => info!(
+                                "Result of task {:?} for key {:?} written to file {:?} and commited to master",
+                                task.task, key, filename
+                            ),
+                            Err(e) => error!("Master did not commit the result, {:?}", e),
+                        }
+                    },
+                    Err(e) => error!("Error writing to {:?}, {:?}", filename, e)
+                }
             }
 
             info!("Finished execution of {:?}, with input {:?}", task.task, task.input);
@@ -99,69 +151,91 @@ async fn wait_for_task(
 
 async fn run_pipeline(
     state: MachineState,
-    pipeline: tasks::Pipeline,
+    mut pipeline: tasks::Pipeline,
     mut result_funnel: mpsc::Receiver<(
         tasks::FinishedTask,
         oneshot::Sender<bool>
     )>
 ) {
-    // TODO add a task_finished funnel
-    // TODO (Optional) Implement a minimum worker threashold
-    let workers = {
-        let state = state.read().unwrap();
-        state.workers.clone()
+    let host = {
+        state.read().unwrap().host.clone()
     };
-    unimplemented!()
+    let pipeline_inputs = init_inputs(&host);
+    if pipeline_inputs.len() > 0 {
+        debug!("Initiating pipeline");
+        pipeline.init(pipeline_inputs);
 
-    // Get inputs from data folder and then init the pipeline
-    // Start pipeline loop
-    //   As long as there are workers
-    //        Get next assignment
-    //            If there is a next assignment,
-    //                Assign to a worker
-    //                Update assignment
-    //            If Finished break the loop  <------ LOOP BREAK
-    //            If wait continue
-    //   Try receiving from task_finished funnel
-    //     As long as there are items in the funnel
-    //        Mark finished assignment
-
-
-    // {
-    //     debug!("Assigning tasks to workers");
-    //     loop {
-    //         debug!("Trying to get read lock on Workers list");
-    //         if let Ok(workers) = workers.read() {
-    //             debug!("Acquired read lock on Workers");
-    //             if workers.len() > 0 {
-    //                 debug!("There are workers registered.");
-    //                 let mut task_assigned = false;
-    //                 for worker in workers.iter() {
-    //                     debug!("Assigning {:?} to {:?}", first_task.task, worker.addr);
-    //                     if let Ok(task_assign_response) = worker.assign_task(&first_task).await {
-    //                         debug!("TASK ASSIGN RESPONSE {:?}", task_assign_response);
-    //                         task_assigned = true;
-    //                         break;
-    //                     } else {
-    //                         warn!("Couldn't assign task to worker {:?}, skipping.", worker.addr);
-    //                     }
-    //                 }
-    //                 if task_assigned {
-    //                     debug!("Task assigned. Finishing the calculation");
-    //                     break;
-    //                 } else {
-    //                     warn!("Couldn't assign the task yet.");
-    //                 }
-    //             } else {
-    //                 warn!("No workers registered yet to run tasks.");
-    //             }
-    //         } else {
-    //             debug!("Couldn't acquire read lock on workers");
-    //         }
-    //         debug!("Waiting {:?}", LOCK_WAIT_DURATION);
-    //         thread::sleep(LOCK_WAIT_DURATION);
-    //     }
-    // }
+        debug!("Starting pipeline loop");
+        loop {
+            debug!("Getting workers list");
+            let available_workers = {
+                state.read().unwrap()
+                    .workers.read().unwrap()
+                    .iter()
+                    .filter(|worker| {
+                        worker.status == system::Status::Ready
+                    })
+                    .fold(Vec::new(), |mut acc, worker| {
+                        acc.push(worker.clone());
+                        acc
+                    })
+            };
+            if available_workers.len() >= MIN_WORKER_THRESHOLD {
+                // Assign tasks to workers
+                for worker in available_workers {
+                    debug!("Getting next assignment");
+                    match pipeline.next() {
+                        tasks::NextTask::Ready(next_task) => {
+                            debug!("Assigning {:?} task to {:?}", next_task.task, worker.addr);
+                            match worker.assign_task(&next_task).await {
+                                Ok(_) => {
+                                    info!("Assigned {:?} task to {:?}", next_task.task, worker.addr);
+                                    if let Ok(_) = pipeline.update_assignment(
+                                        next_task.task_id,
+                                        next_task.key,
+                                        next_task.input
+                                    ) {
+                                        debug!("Assignment updated in pipeline");
+                                    } else {
+                                        error!("Couldn't commit assignment update.");
+                                    }
+                                },
+                                Err(e) => error!("Couldn't assign task, will try next worker {:?}", e)
+                            }
+                        },
+                        tasks::NextTask::Finished => {
+                            info!("Pipeline is finished, exiting pipeline loop");
+                            break;
+                        },
+                        tasks::NextTask::Waiting => debug!("Pipeline is waiting")
+                    }
+                }
+                // Consume results queue
+                while let Ok((result, ack)) = result_funnel.try_recv() {
+                    info!("A task has been finished, {:?} with id {:?}", result.task, result.task_id);
+                    if let Ok(_) = pipeline.finished_task(
+                        result.task_id,
+                        result.key,
+                        result.finished,
+                        result.result_key,
+                        result.result
+                    ) {
+                        debug!("Recorded to pipeline");
+                        ack.send(true).unwrap();
+                    } else {
+                        error!("Can't mark the task as finished in pipeline.");
+                        ack.send(false).unwrap();
+                    }
+                }
+            } else {
+                warn!("Not enough workers to assign work.");
+            }
+            debug!("Sleeping until next pipeline cycle {:?}", PIPELINE_LOOP_SLEEP);
+            thread::sleep(PIPELINE_LOOP_SLEEP);
+        }
+    } else {
+        error!("There are no input files, aborting.");
+    }
 }
 
 pub fn spawn_inner(
@@ -241,6 +315,26 @@ pub fn spawn_inner(
             }
         });
     }).unwrap()
+}
+
+fn init_inputs(host: &String) -> tasks::TaskInputs {
+    // TODO HACK this entire function is a hack
+    let mut inputs = Vec::new();
+    if let Ok(read_dir) = fs::read_dir("./data/inputs") {
+        for entry in read_dir {
+            let path = entry.unwrap().path();
+            let filename = path.file_stem().unwrap().to_str().unwrap();
+            if filename != ".gitignore" {
+                inputs.push(
+                    tasks::TaskInput {
+                        machine_addr: host.clone(),
+                        file: format!("{:}", filename),
+                    }
+                );
+            }
+        }
+    }
+    inputs
 }
 
 mod tests {

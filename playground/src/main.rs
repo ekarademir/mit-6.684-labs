@@ -2,11 +2,26 @@
 // Playground
 // ############################################################################
 
-use hyper::Uri;
+use std::fs;
 
 fn main() {
-    let uri = "http://master:3000/value?file=master_key_123".parse::<Uri>().unwrap();
+    println!("{:?}", visit_dirs());
+}
 
-    println!("{:?}", uri.path_and_query().unwrap().query().unwrap());
-    println!("{:?}", uri.path_and_query().unwrap().path());
+
+// one possible implementation of walking a directory only visiting files
+fn visit_dirs() -> Vec<String> {
+    let mut inputs = Vec::new();
+    if let Ok(read_dir) = fs::read_dir("./data/inputs") {
+        for entry in read_dir {
+            let path = entry.unwrap().path();
+            let filename = path.file_stem().unwrap().to_str().unwrap();
+            if filename != ".gitignore" {
+                inputs.push(
+                    format!("{:}", filename)
+                );
+            }
+        }
+    }
+    inputs
 }
