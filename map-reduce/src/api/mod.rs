@@ -33,6 +33,10 @@ pub struct MainService {
     pub task_sender: mpsc::Sender<(
         tasks::TaskAssignment,
         oneshot::Sender<bool>
+    )>,
+    pub result_sender: mpsc::Sender<(
+        tasks::FinishedTask,
+        oneshot::Sender<bool>
     )>
 }
 
@@ -56,6 +60,7 @@ impl Service<Request<Body>> for MainService {
         let state = self.state.clone();
         let heartbeat_sender = self.heartbeat_sender.clone();
         let task_sender = self.task_sender.clone();
+        let result_sender = self.result_sender.clone();
         Box::pin(async move {
             let result = match (req.method(), req.uri().path()) {
                 (&Method::GET, endpoints::HEALTH) => make_result(
@@ -74,6 +79,10 @@ impl Service<Request<Body>> for MainService {
                     system::assign_task(req, task_sender).await,
                     Some(StatusCode::OK)
                 ),
+                (&Method::POST, endpoints::FINISHED_TASK) => make_result(
+                    system::finished_task(req, result_sender).await,
+                    Some(StatusCode::OK)
+                ),
                 (_, the_path) => make_result(
                     system::ErrorResponse::not_found(the_path),
                     None
@@ -89,6 +98,10 @@ pub struct MakeMainService {
     pub heartbeat_sender: mpsc::Sender<system::NetworkNeighbor>,
     pub task_sender: mpsc::Sender<(
         tasks::TaskAssignment,
+        oneshot::Sender<bool>
+    )>,
+    pub result_sender: mpsc::Sender<(
+        tasks::FinishedTask,
         oneshot::Sender<bool>
     )>
 }
@@ -107,6 +120,7 @@ impl<T> Service<T> for MakeMainService {
             state: self.state.clone(),
             heartbeat_sender: self.heartbeat_sender.clone(),
             task_sender: self.task_sender.clone(),
+            result_sender: self.result_sender.clone(),
         };
         let fut = async move { Ok(main_svc) };
         Box::pin(fut)

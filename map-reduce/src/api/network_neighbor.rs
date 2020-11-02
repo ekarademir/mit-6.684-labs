@@ -41,6 +41,11 @@ pub struct TaskAssignResponse {
     pub result: tasks::TaskStatus,
 }
 
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub struct TaskFinishResponse {
+    pub result: tasks::FinishReportStatus,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct NetworkNeighbor {
     pub addr: String,
@@ -61,7 +66,7 @@ impl Clone for NetworkNeighbor {
 }
 
 impl NetworkNeighbor {
-    pub async fn finish_task(&self, task: &tasks::TaskAssignment) -> Result<(), errors::ResponseError> {
+    pub async fn finish_task(&self, task: &tasks::TaskAssignment) -> Result<TaskFinishResponse, errors::ResponseError> {
         unimplemented!();
     }
 

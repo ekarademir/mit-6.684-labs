@@ -14,6 +14,12 @@ pub enum TaskStatus {
     CantAssign,
 }
 
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub enum FinishReportStatus {
+    Commited,
+    Error,
+}
+
 pub use task_assignment::{
     ATask,
     TaskAssignment,

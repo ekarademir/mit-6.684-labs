@@ -155,7 +155,7 @@ fn main() {
         )
     );
 
-    let server_thread = threads::spawn_server(me.clone(), heartbeat_tx, task_tx, kill_rx);
+    let server_thread = threads::spawn_server(me.clone(), heartbeat_tx, task_tx, result_tx, kill_rx);
     let inner_thread = threads::spawn_inner(me.clone(), task_rx, pipeline, result_rx);
     let heartbeat_thread = threads::spawn_heartbeat(me.clone(), heartbeat_rx, heartbeat_kill_sw);
 

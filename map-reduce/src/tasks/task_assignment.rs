@@ -61,7 +61,7 @@ pub struct TaskAssignment {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct FinishedTask {
     pub task: ATask,
-    pub finished: TaskInput,
+    pub finished: TaskInputs,
     pub task_id: u32,
     pub key: String,
     pub result: TaskInput,

@@ -11,7 +11,12 @@ use crate::MachineState;
 use crate::tasks;
 
 pub use super::network_neighbor::{
-    MachineKind, Status, NetworkNeighbor, Heartbeat, TaskAssignResponse
+    MachineKind,
+    Status,
+    NetworkNeighbor,
+    Heartbeat,
+    TaskAssignResponse,
+    TaskFinishResponse,
 };
 
 // API Responses
@@ -211,7 +216,43 @@ pub async fn finished_task(
         oneshot::Sender<bool>
     )>
 ) -> String {
-    unimplemented!();
+    debug!("/finished_task()");
+    let mut task_finish_response: TaskFinishResponse = TaskFinishResponse {
+        result: tasks::FinishReportStatus::Error,
+    };
+    match hyper::body::aggregate(req).await {
+        Ok(body) => {
+            match serde_json::from_reader::<_, tasks::FinishedTask>(body.reader()) {
+                Ok(result) => {
+                    info!("Finished task received: {:?}", result.task);
+                    // Prep ack channel
+                    let (ack_tx, ack_rx) = oneshot::channel::<bool>();
+                    // Server can get online before task running thread can receive it
+                    if let Ok(_) = result_sender.try_send((result, ack_tx)) {
+                        if let Ok(true) = ack_rx.await {
+                            task_finish_response.result = tasks::FinishReportStatus::Commited;
+                            serde_json::to_string(&task_finish_response).unwrap()
+                        } else {
+                            error!("Didn't receive assignment acknowledgement");
+                            task_finish_response.result = tasks::FinishReportStatus::Error;
+                            serde_json::to_string(&task_finish_response).unwrap()
+                        }
+                    } else {
+                        error!("Can't send task to task");
+                        task_finish_response.result = tasks::FinishReportStatus::Error;
+                        serde_json::to_string(&task_finish_response).unwrap()
+                    }
+                },
+                Err(e) => {
+                    error!("Can't parse task assignment request, {:?}", e);
+                    ErrorResponse::request_problem(e.to_string())
+                }
+            }
+        },
+        Err(e) => {
+            ErrorResponse::request_problem(e.to_string())
+        }
+    }
 }
 
 pub async fn value(
@@ -222,55 +263,59 @@ pub async fn value(
 
 #[cfg(test)]
 mod tests {
-    // #[tokio::test]
-    // async fn test_endpoint_finished_task() {
-    //     // Uncomment for debugging
-    //     // let _ = env_logger::try_init();
+    #[tokio::test]
+    async fn test_endpoint_finished_task() {
+        // Uncomment for debugging
+        let _ = env_logger::try_init();
 
-    //     use hyper::{Body, Request};
-    //     use tokio::sync::{mpsc, oneshot};
-    //     use crate::tasks;
+        use hyper::{Body, Request};
+        use tokio::sync::{mpsc, oneshot};
+        use crate::tasks;
 
-    //     let finished_task = serde_json::json!(
-    //         {
-    //             "task_id": 42,
-    //             "task": "CountWords",
-    //             "key": "InputKey",
-    //             "input": [{
-    //                 "machine_addr": "http://some.machine",
-    //                 "file": "some_file.txt"
-    //             }]
-    //         }
-    //     );
+        let finished_task = serde_json::json!(
+            {
+                "task_id": 42,
+                "task": "CountWords",
+                "key": "InputKey",
+                "finished": [{
+                    "machine_addr": "http://some.machine",
+                    "file": "some_file.txt"
+                }],
+                "result_key": "OutputKey",
+                "result": {
+                    "machine_addr": "http://some.machine",
+                    "file": "some_file.txt"
+                }
+            }
+        );
 
-    //     // Build Request
-    //     let req: Request<Body> = Request::builder()
-    //         .body(task_assignment.to_string().into())
-    //         .unwrap();
+        // Build Request
+        let req: Request<Body> = Request::builder()
+            .body(finished_task.to_string().into())
+            .unwrap();
 
-    //     // Build comm channels
-    //     let (task_tx, mut task_rx) = mpsc::channel::<(
-    //         tasks::FinishedTask,
-    //         oneshot::Sender<bool>
-    //     )>(10);
+        // Build comm channels
+        let (result_tx, mut result_rx) = mpsc::channel::<(
+            tasks::FinishedTask,
+            oneshot::Sender<bool>
+        )>(10);
 
-    //     // Send task
-    //     tokio::spawn(async move {
-    //         let response = super::finished_task(req, task_tx.clone()).await;
-    //         let expected_response = serde_json::json!({
-    //             "result": "Queued"
-    //         });
-    //         // Check if task is queued
-    //         assert_eq!(response, serde_json::to_string(&expected_response).unwrap());
-    //     });
+        // Wait result on a new tokio task
+        tokio::spawn(async move {
+            let response = super::finished_task(req, result_tx.clone()).await;
+            let expected_response = serde_json::json!({
+                "result": "Commited"
+            });
+            // Check finishing task returns commited message
+            assert_eq!(response, serde_json::to_string(&expected_response).unwrap());
+        });
 
-    //     // Check assigning task returns queued message
-    //     // Check if task is sent to channel
-    //     let (assigned_task, ack_tx) = task_rx.recv().await.unwrap();
-    //     assert_eq!(serde_json::to_value(assigned_task).unwrap(), task_assignment);
-    //     // Send acknowledgement to finish the return check.
-    //     ack_tx.send(true).unwrap();
-    // }
+        // Check if the enpoint will send received result to the funnel
+        let (received_result, ack_tx) = result_rx.recv().await.unwrap();
+        assert_eq!(serde_json::to_value(received_result).unwrap(), finished_task);
+        // Send acknowledgement to finish tokio task.
+        ack_tx.send(true).unwrap();
+    }
 
     #[tokio::test]
     async fn test_endpoint_assign_task() {
@@ -304,21 +349,20 @@ mod tests {
             oneshot::Sender<bool>
         )>(10);
 
-        // Send task
+        // Wait task on a new tokio task
         tokio::spawn(async move {
             let response = super::assign_task(req, task_tx.clone()).await;
             let expected_response = serde_json::json!({
                 "result": "Queued"
             });
-            // Check if task is queued
+            // Check assigning task returns queued message
             assert_eq!(response, serde_json::to_string(&expected_response).unwrap());
         });
 
-        // Check assigning task returns queued message
-        // Check if task is sent to channel
+        // Check if the endpoint sends assigned task to the task funnel
         let (assigned_task, ack_tx) = task_rx.recv().await.unwrap();
         assert_eq!(serde_json::to_value(assigned_task).unwrap(), task_assignment);
-        // Send acknowledgement to finish the return check.
+        // Send acknowledgement to finish tokio task
         ack_tx.send(true).unwrap();
     }
 }

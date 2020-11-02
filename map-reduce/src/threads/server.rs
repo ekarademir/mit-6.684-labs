@@ -19,6 +19,10 @@ pub fn spawn_server(
         tasks::TaskAssignment,
         oneshot::Sender<bool>
     )>,
+    result_sender: mpsc::Sender<(
+        tasks::FinishedTask,
+        oneshot::Sender<bool>
+    )>,
     kill_rx: oneshot::Receiver<()>
 ) -> JoinHandle<()> {
     let main_state = state.clone();
@@ -40,6 +44,7 @@ pub fn spawn_server(
                         state: main_state,
                         heartbeat_sender,
                         task_sender,
+                        result_sender,
                     })
                     .with_graceful_shutdown(async {
                         select! {
