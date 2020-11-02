@@ -179,7 +179,7 @@ impl Pipeline {
     &mut self,
     task_id: u32,
     key: String,
-    finished: TaskInput,
+    finished: TaskInputs,
     next_key: String,
     next_input: TaskInput
   ) -> Result<(), PipelineError> {
@@ -190,13 +190,17 @@ impl Pipeline {
     );
     // Check if there is a task input in store
     debug!("Checking if this task is in the store");
-    match self.get_task_input_status(task_id, key.clone(), finished.clone()) {
-      Err(x) => return Err(x),
-      _ => {}
+    for finished_input in finished.clone() {
+      match self.get_task_input_status(task_id, key.clone(), finished_input.clone()) {
+        Err(x) => return Err(x),
+        _ => {}
+      }
     }
     // Update the old entry
-    debug!("Task is in the store, updating as Finished");
-    self.upsert_status(task_id, key, finished, AssignmentStatus::Finished);
+    debug!("Task is in the store, updating all finished inputs as Finished");
+    for finished_input in finished {
+      self.upsert_status(task_id, key.clone(), finished_input, AssignmentStatus::Finished);
+    }
 
     debug!("Inserting key and input for the next task");
     for next_task in self.next_tasks(&task_id) {
@@ -652,7 +656,7 @@ mod tests {
     let assignment1 = next_assignment1.unpack();
     assert!(
       pipeline.finished_task(
-        assignment1.task_id, assignment1.key, assignment1.input[0].clone(),
+        assignment1.task_id, assignment1.key, assignment1.input,
         next_key1.clone(), next_result1.clone()
       ).is_ok()
     );
@@ -666,7 +670,7 @@ mod tests {
     let assignment2 = next_assignment2.clone().unpack();
     assert!(
       pipeline.finished_task(
-        assignment2.task_id, assignment2.key, assignment2.input[0].clone(),
+        assignment2.task_id, assignment2.key, assignment2.input,
         next_key2.clone(), next_result2.clone()
       ).is_ok()
     );
@@ -675,7 +679,7 @@ mod tests {
     let assignment2 = next_assignment2.clone().unpack();
     assert!(
       pipeline.finished_task(
-        assignment2.task_id, assignment2.key, assignment2.input[0].clone(),
+        assignment2.task_id, assignment2.key, assignment2.input,
         next_key3.clone(), next_result3.clone()
       ).is_ok()
     );
@@ -766,13 +770,13 @@ mod tests {
 
     assert!(
       pipeline.finished_task(
-        assignment1.task_id, assignment1.key, assignment1.input[0].clone(),
+        assignment1.task_id, assignment1.key, assignment1.input,
         next_key1.clone(), next_result1.clone()
       ).is_ok()
     );
     assert!(
       pipeline.finished_task(
-        assignment2.task_id, assignment2.key, assignment2.input[0].clone(),
+        assignment2.task_id, assignment2.key, assignment2.input,
         next_key2.clone(), next_result2.clone()
       ).is_ok()
     );
@@ -832,7 +836,7 @@ mod tests {
       task_pipeline.finished_task(
         task1.index() as u32,
         key.clone(),
-        task_input.clone(),
+        vec![task_input.clone()],
         next_key.clone(),
         next_input.clone()
       ).is_ok()

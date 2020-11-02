@@ -170,7 +170,11 @@ pub fn spawn_inner(
         tasks::TaskAssignment,
         oneshot::Sender<bool>
     )>,
-    task_pipeline: tasks::Pipeline
+    task_pipeline: tasks::Pipeline,
+    result_funnel: mpsc::Receiver<(
+        tasks::FinishedTask,
+        oneshot::Sender<bool>
+    )>
 ) -> JoinHandle<()> {
     let main_state = state.clone();
     thread::Builder::new().name("Inner".into()).spawn(|| {
@@ -231,7 +235,7 @@ pub fn spawn_inner(
             }
             // Run tasks
             if my_kind == system::MachineKind::Master  {
-                run_pipeline(state, task_pipeline).await;
+                run_pipeline(state, task_pipeline, result_funnel).await;
             } else { // Worker
                 wait_for_task(state, task_funnel).await;
             }

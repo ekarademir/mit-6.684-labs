@@ -214,8 +214,64 @@ pub async fn finished_task(
     unimplemented!();
 }
 
+pub async fn value(
+    req: Request<Body>
+) -> String {
+    unimplemented!();
+}
+
 #[cfg(test)]
 mod tests {
+    // #[tokio::test]
+    // async fn test_endpoint_finished_task() {
+    //     // Uncomment for debugging
+    //     // let _ = env_logger::try_init();
+
+    //     use hyper::{Body, Request};
+    //     use tokio::sync::{mpsc, oneshot};
+    //     use crate::tasks;
+
+    //     let finished_task = serde_json::json!(
+    //         {
+    //             "task_id": 42,
+    //             "task": "CountWords",
+    //             "key": "InputKey",
+    //             "input": [{
+    //                 "machine_addr": "http://some.machine",
+    //                 "file": "some_file.txt"
+    //             }]
+    //         }
+    //     );
+
+    //     // Build Request
+    //     let req: Request<Body> = Request::builder()
+    //         .body(task_assignment.to_string().into())
+    //         .unwrap();
+
+    //     // Build comm channels
+    //     let (task_tx, mut task_rx) = mpsc::channel::<(
+    //         tasks::FinishedTask,
+    //         oneshot::Sender<bool>
+    //     )>(10);
+
+    //     // Send task
+    //     tokio::spawn(async move {
+    //         let response = super::finished_task(req, task_tx.clone()).await;
+    //         let expected_response = serde_json::json!({
+    //             "result": "Queued"
+    //         });
+    //         // Check if task is queued
+    //         assert_eq!(response, serde_json::to_string(&expected_response).unwrap());
+    //     });
+
+    //     // Check assigning task returns queued message
+    //     // Check if task is sent to channel
+    //     let (assigned_task, ack_tx) = task_rx.recv().await.unwrap();
+    //     assert_eq!(serde_json::to_value(assigned_task).unwrap(), task_assignment);
+    //     // Send acknowledgement to finish the return check.
+    //     ack_tx.send(true).unwrap();
+    // }
+
     #[tokio::test]
     async fn test_endpoint_assign_task() {
         // Uncomment for debugging

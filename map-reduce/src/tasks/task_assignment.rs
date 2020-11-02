@@ -68,7 +68,7 @@ pub struct FinishedTask {
     pub result_key: String,
 }
 
-
+// TODO Find a better serialization method for results, maybe Generics
 pub type TaskResult = Vec<(String, String)>;
 
 impl TaskAssignment {
