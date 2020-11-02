@@ -266,7 +266,7 @@ mod tests {
     #[tokio::test]
     async fn test_endpoint_finished_task() {
         // Uncomment for debugging
-        let _ = env_logger::try_init();
+        // let _ = env_logger::try_init();
 
         use hyper::{Body, Request};
         use tokio::sync::{mpsc, oneshot};

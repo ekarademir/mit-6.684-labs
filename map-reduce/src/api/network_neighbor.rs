@@ -66,8 +66,54 @@ impl Clone for NetworkNeighbor {
 }
 
 impl NetworkNeighbor {
-    pub async fn finish_task(&self, task: &tasks::TaskAssignment) -> Result<TaskFinishResponse, errors::ResponseError> {
-        unimplemented!();
+    pub async fn finish_task(&self, task: &tasks::FinishedTask) -> Result<TaskFinishResponse, errors::ResponseError> {
+        if self.status != Status::Ready {
+            return Err(errors::ResponseError::NotReadyYet);
+        }
+        let client = Client::new();
+        let uri = self.addr.parse::<Uri>().unwrap();
+        let uri = format!("http://{}{}",
+                uri.host_port(),
+                endpoints::FINISHED_TASK
+            ).parse::<Uri>().unwrap();
+        let req_body = Body::from(serde_json::to_string(&task).unwrap());
+        let req = Request::post(uri)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(req_body)
+            .unwrap();
+        match client.request(req).await {
+            Ok(res) => match body::aggregate(res).await {
+                Ok(response_body) => match serde_json::from_reader::<_, TaskFinishResponse> (
+                    response_body.reader()
+                ){
+                    Ok(task_finish_response) => {
+                        debug!("Received response {:?}", task_finish_response);
+                        if task_finish_response.result == tasks::FinishReportStatus::Commited {
+                            Ok(task_finish_response)
+                        } else {
+                            error!(
+                                "Master@{:} not ready yet: {:?}",
+                                self.addr,
+                                task_finish_response.result
+                            );
+                            Err(errors::ResponseError::NotReadyYet)
+                        }
+                    },
+                    Err(e) => {
+                        error!("Couldn't parse response: {:?}", e);
+                        Err(errors::ResponseError::CantParseResponse)
+                    }
+                },
+                Err(e)=> {
+                    error!("Couldn't aggregate response body: {:?}", e);
+                    Err(errors::ResponseError::CantBufferContents)
+                }
+            },
+            Err(e) => {
+                error!("Couldn't get a response: {:?}", e);
+                Err(errors::ResponseError::Offline)
+            }
+        }
     }
 
     pub async fn assign_task(&self, task: &tasks::TaskAssignment) -> Result<TaskAssignResponse, errors::ResponseError> {
@@ -264,6 +310,86 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_finishing_task() {
+        // Uncomment for debugging
+        // let _ = env_logger::try_init();
+
+        use httptest::{Server, Expectation, matchers::*, responders::*};
+
+        use crate::api::{endpoints, system};
+        use crate::api::network_neighbor::NetworkNeighbor;
+        use crate::tasks;
+
+        let task_finish_response = serde_json::json!(
+            {
+                "result": "Commited"
+            }
+        );
+        let task_result = serde_json::json!(
+            {
+                "task": "CountWords",
+                "task_id": 42,
+                "key": "SomeKey",
+                "finished": [{
+                    "machine_addr": "http://some.machine",
+                    "file": "some_file.txt"
+                }],
+                "result": {
+                    "machine_addr": "http://some.machine",
+                    "file": "some_file.txt"
+                },
+                "result_key": "OutputKey"
+            }
+        );
+
+        // Setup server to act as a Worker
+        let server = Server::run();
+
+        server.expect(
+            Expectation::matching(all_of![
+                request::method_path("POST", endpoints::FINISHED_TASK),
+                request::body(json_decoded(eq(task_result)))
+            ]).respond_with(
+                json_encoded(task_finish_response.clone()
+            )),
+        );
+        let url = server.url("/");
+        // Create master NetworkNeighbor
+        let test_neighbor = NetworkNeighbor {
+            addr: url.to_string(),
+            kind: system::MachineKind::Master,
+            status: system::Status::Ready,
+            last_heartbeat_ns: 0
+        };
+
+        let test_result = tasks::FinishedTask {
+            task: tasks::ATask::CountWords,
+            key: "SomeKey".to_string(),
+            result_key: "OutputKey".to_string(),
+            finished: vec![tasks::TaskInput {
+                machine_addr: "http://some.machine".to_string(),
+                file: "some_file.txt".to_string(),
+            }],
+            result: tasks::TaskInput {
+                machine_addr: "http://some.machine".to_string(),
+                file: "some_file.txt".to_string(),
+            },
+            task_id: 42,
+        };
+
+        // Run test
+        let response = test_neighbor.finish_task(
+            &test_result
+        ).await;
+        assert_eq!(response.ok(), Some(
+            super::TaskFinishResponse {
+                result: tasks::FinishReportStatus::Commited,
+            }
+        ));
+
+    }
+
+    #[tokio::test]
     async fn test_assigning_task() {
         // Uncomment for debugging
         // let _ = env_logger::try_init();
@@ -332,6 +458,7 @@ mod tests {
         ));
 
     }
+
     #[tokio::test]
     async fn test_assigning_task_notready() {
         // Uncomment for debugging
@@ -366,6 +493,7 @@ mod tests {
         assert_eq!(response.err(), Some(errors::ResponseError::NotReadyYet));
 
     }
+
     #[tokio::test]
     async fn test_assigning_task_offline() {
         // Uncomment for debugging
