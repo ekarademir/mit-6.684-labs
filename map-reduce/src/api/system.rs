@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 use serde_json;
 use log::{debug, info, error};
 use tokio::sync::{mpsc, oneshot};
+use tokio::fs::File;
+use tokio::io::{self, AsyncReadExt};
 
 use crate::MachineState;
 use crate::tasks;
@@ -52,6 +54,12 @@ impl ErrorResponse {
     pub fn request_problem(e: String) -> String {
         let resp = ErrorResponse {
             error: Some(format!("Problem with request. {}", e)),
+        };
+        serde_json::to_string(&resp).unwrap()
+    }
+    pub fn internal_problem(e: String) -> String {
+        let resp = ErrorResponse {
+            error: Some(format!("Problem running the request: {}", e)),
         };
         serde_json::to_string(&resp).unwrap()
     }
@@ -255,14 +263,36 @@ pub async fn finished_task(
     }
 }
 
-pub async fn value(
-    req: Request<Body>
+pub async fn contents(
+    filename: &str
 ) -> String {
-    unimplemented!();
+    // TODO HACK get the folder from MachineState
+    match File::open(
+        format!("data/intermediate/{:}.txt", filename)
+    ).await {
+        Ok(mut f) => {
+            let mut buffer = Vec::new();
+
+            // read the whole file
+            f.read_to_end(&mut buffer).await.unwrap();
+            // respond with the whole content
+            std::str::from_utf8(&buffer).unwrap()
+                .trim()
+                .to_string()
+        },
+        Err(e) => ErrorResponse::internal_problem(e.to_string())
+    }
+
 }
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn test_endpoint_contents() {
+        let response = super::contents("test").await;
+        assert_eq!(response, "Some content to test endpoints.".to_string());
+    }
+
     #[tokio::test]
     async fn test_endpoint_finished_task() {
         // Uncomment for debugging

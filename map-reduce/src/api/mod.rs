@@ -62,6 +62,22 @@ impl Service<Request<Body>> for MainService {
         let task_sender = self.task_sender.clone();
         let result_sender = self.result_sender.clone();
         Box::pin(async move {
+            // TODO HACK, use proper URL parsing lib
+            if let Some(pq) = req.uri().path_and_query() {
+                if pq.path() == endpoints::CONTENTS {
+                    if let Some(q) = pq.query() {
+                        if q.starts_with("file=") {
+                            return make_result(
+                                system::contents(
+                                    q.strip_prefix("file=").unwrap()
+                                ).await,
+                                Some(StatusCode::OK)
+                            );
+                        }
+                    }
+                }
+            }
+
             let result = match (req.method(), req.uri().path()) {
                 (&Method::GET, endpoints::HEALTH) => make_result(
                     system::health(state).await,
