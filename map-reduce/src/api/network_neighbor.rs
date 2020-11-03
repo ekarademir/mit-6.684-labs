@@ -72,10 +72,12 @@ impl NetworkNeighbor {
         }
         let client = Client::new();
         let uri = self.addr.parse::<Uri>().unwrap();
+        debug!("Parsed URI {:?}", uri);
         let uri = format!("http://{}{}",
                 uri.host_port(),
                 endpoints::FINISHED_TASK
             ).parse::<Uri>().unwrap();
+        debug!("Calling finish_task on {:?}", uri);
         let req_body = Body::from(serde_json::to_string(&task).unwrap());
         let req = Request::post(uri)
             .header(header::CONTENT_TYPE, "application/json")

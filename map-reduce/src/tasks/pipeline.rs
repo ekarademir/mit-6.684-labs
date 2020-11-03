@@ -34,8 +34,7 @@ pub type TaskNode = graph::NodeIndex;
 type TaskGraph = petgraph::Graph<ATask, (), petgraph::Directed>;
 type InputStore = HashMap<TaskInput, AssignmentStatus>;
 type KeyStore = HashMap<String, InputStore>; // Values are task inputs to status of task
-type TaskStoreInner = HashMap<TaskNode, KeyStore>;
-type TaskStore = Arc<RwLock<TaskStoreInner>>;
+type TaskStore = HashMap<TaskNode, KeyStore>;
 
 pub struct PipelineBuilder {
   inner: TaskGraph,
@@ -105,11 +104,8 @@ impl PipelineBuilder {
     }
     let ordered = self.linearize();
 
-    let store = Arc::new(
-      RwLock::new(
-        TaskStoreInner::new()
-      )
-    );
+    let store = TaskStore::new();
+
     Pipeline {
       ordered,
       store,
@@ -245,21 +241,30 @@ impl Pipeline {
   }
 
   pub fn next(&self) -> NextTask {
-    if let Ok(store) = self.store.read() {
-      for (node_idx, key_store) in store.iter() {
-        debug!("Checking task {:?} which is a {:?}", self[node_idx], self[node_idx].kind());
-        // We try to optimize to finish map tasks as soon as possible,
-        // so check if there are unfinished map tasks and return them first
-        match self[node_idx].kind() {
-          TaskKind::Map => {
-            debug!("Checking if this Map task as viable assignments");
-            // If this is a map task, we assign one input to one function
-            // find the next unfinished task input
-            for (key, input_store) in key_store.iter() {
-              for (task_input, status) in input_store.iter() {
-                match status {
-                  AssignmentStatus::Unassigned => {
-                    debug!{"Found input {:?} for key '{:?}' is not assigned yet", task_input, key};
+    for (node_idx, key_store) in self.store.iter() {
+      debug!("Checking task {:?} which is a {:?}", self[node_idx], self[node_idx].kind());
+      // We try to optimize to finish map tasks as soon as possible,
+      // so check if there are unfinished map tasks and return them first
+      match self[node_idx].kind() {
+        TaskKind::Map => {
+          debug!("Checking if this Map task as viable assignments");
+          // If this is a map task, we assign one input to one function
+          // find the next unfinished task input
+          for (key, input_store) in key_store.iter() {
+            for (task_input, status) in input_store.iter() {
+              match status {
+                AssignmentStatus::Unassigned => {
+                  debug!{"Found input {:?} for key '{:?}' is not assigned yet", task_input, key};
+                  let assignment = TaskAssignment {
+                    task: self[node_idx],
+                    input: vec![task_input.clone()],
+                    task_id: node_idx.index() as u32,
+                    key: key.clone(),
+                  };
+                  return NextTask::Ready(assignment);
+                }, // AssignmentStatus::Unassigned
+                AssignmentStatus::Assigned(when) => {
+                  if Instant::now().duration_since(*when) > REASSIGN_TRESHOLD {
                     let assignment = TaskAssignment {
                       task: self[node_idx],
                       input: vec![task_input.clone()],
@@ -267,86 +272,74 @@ impl Pipeline {
                       key: key.clone(),
                     };
                     return NextTask::Ready(assignment);
-                  }, // AssignmentStatus::Unassigned
-                  AssignmentStatus::Assigned(when) => {
-                    if Instant::now().duration_since(*when) > REASSIGN_TRESHOLD {
-                      let assignment = TaskAssignment {
-                        task: self[node_idx],
-                        input: vec![task_input.clone()],
-                        task_id: node_idx.index() as u32,
-                        key: key.clone(),
-                      };
-                      return NextTask::Ready(assignment);
-                    } // If reassign threshold is not passed do nothing
-                  }, // AssignmentStatus::Assigned
-                  AssignmentStatus::Finished => {} // Do nothing
-                } // match status
-              } // input_store loop
-            } // key_store loop
-          }, // TaskKind::Map
-          TaskKind::Reduce => {
-            debug!("Checking if this Reduce task as viable assignments");
-            // If this is a reduce task, we need to make sure all the inputs are produced by
-            // previous task tree. This also means that a single branch of a Reduce task can halt
-            // execution of the pipeline unnecessarily but it's ok. We go breadth first but still
-            // wait any Reduce
-            if self.have_parents_finished(&node_idx) {
-              debug!{"All parents of this reduce node have finished"};
-              // For reduce tasks, we assign all inputs for a key
-              // Since we are waiting for parents before assigning anything, all inputs are
-              // Unassigned, or assigned to the same task (to reduce), or finished at the same time
-              for (key, input_store) in key_store.iter() {
-                // Below is a bit hacky but should do the job. We can probably find a way to not to
-                // loop twice.
-                // Ideally the following loop shouldn't run more than one ieteration.
-                debug!("Checking if this key, {:?} has been assigned or finished before", key);
-                match input_store.values().next() {
-                  Some(status) =>
-                    match status {
-                      AssignmentStatus::Finished => continue,
-                      AssignmentStatus::Assigned(t) => if Instant::now().duration_since(*t) < REASSIGN_TRESHOLD { continue },
-                      _ => {}
-                    },
-                  None => continue,
-                }
-                // If we reach here, we can create the assignment, now loop for actually collecting
-                // the documents
-                debug!("Collecting inputs");
-                let inputs = input_store.keys()
-                  .fold(TaskInputs::new(), |mut acc, task_input| {
-                    acc.push(task_input.clone());
-                    acc
-                  });
-                debug!{"Found {:?} inputs for key '{:?}' is not assigned yet", inputs.len(), key};
-                let assignment = TaskAssignment {
-                  task: self[node_idx],
-                  input: inputs,
-                  task_id: node_idx.index() as u32,
-                  key: key.clone(),
-                };
-                return NextTask::Ready(assignment);
+                  } // If reassign threshold is not passed do nothing
+                }, // AssignmentStatus::Assigned
+                AssignmentStatus::Finished => {} // Do nothing
+              } // match status
+            } // input_store loop
+          } // key_store loop
+        }, // TaskKind::Map
+        TaskKind::Reduce => {
+          debug!("Checking if this Reduce task as viable assignments");
+          // If this is a reduce task, we need to make sure all the inputs are produced by
+          // previous task tree. This also means that a single branch of a Reduce task can halt
+          // execution of the pipeline unnecessarily but it's ok. We go breadth first but still
+          // wait any Reduce
+          if self.have_parents_finished(&node_idx) {
+            debug!{"All parents of this reduce node have finished"};
+            // For reduce tasks, we assign all inputs for a key
+            // Since we are waiting for parents before assigning anything, all inputs are
+            // Unassigned, or assigned to the same task (to reduce), or finished at the same time
+            for (key, input_store) in key_store.iter() {
+              // Below is a bit hacky but should do the job. We can probably find a way to not to
+              // loop twice.
+              // Ideally the following loop shouldn't run more than one ieteration.
+              debug!("Checking if this key, {:?} has been assigned or finished before", key);
+              match input_store.values().next() {
+                Some(status) =>
+                  match status {
+                    AssignmentStatus::Finished => continue,
+                    AssignmentStatus::Assigned(t) => if Instant::now().duration_since(*t) < REASSIGN_TRESHOLD { continue },
+                    _ => {}
+                  },
+                None => continue,
               }
-            } else {
-              debug!{"This reduce node has unfinished parents, halt execution until they finish."};
-              return NextTask::Waiting;
+              // If we reach here, we can create the assignment, now loop for actually collecting
+              // the documents
+              debug!("Collecting inputs");
+              let inputs = input_store.keys()
+                .fold(TaskInputs::new(), |mut acc, task_input| {
+                  acc.push(task_input.clone());
+                  acc
+                });
+              debug!{"Found {:?} inputs for key '{:?}' is not assigned yet", inputs.len(), key};
+              let assignment = TaskAssignment {
+                task: self[node_idx],
+                input: inputs,
+                task_id: node_idx.index() as u32,
+                key: key.clone(),
+              };
+              return NextTask::Ready(assignment);
             }
-          }, // TaskKind::Reduce
-          TaskKind::Final => {
-            debug!("Checking if this Final task has any parents who didn't finish.");
-            // If this is the final task, we just need to make sure if all parents have finished.
-            // If all parents fnished then there is no firther assignment. Pipeline is finished.
-            if self.have_parents_finished(&node_idx) {
-              debug!("Pipeline finished");
-              return NextTask::Finished;
-            } else {
-              debug!("Still waiting final task");
-              return NextTask::Waiting;
-            }
-          } //TaskKind::Final
-        } // match task kind
-      }
+          } else {
+            debug!{"This reduce node has unfinished parents, halt execution until they finish."};
+            return NextTask::Waiting;
+          }
+        }, // TaskKind::Reduce
+        TaskKind::Final => {
+          debug!("Checking if this Final task has any parents who didn't finish.");
+          // If this is the final task, we just need to make sure if all parents have finished.
+          // If all parents fnished then there is no firther assignment. Pipeline is finished.
+          if self.have_parents_finished(&node_idx) {
+            debug!("Pipeline finished");
+            return NextTask::Finished;
+          } else {
+            debug!("Still waiting final task");
+            return NextTask::Waiting;
+          }
+        } //TaskKind::Final
+      } // match task kind
     }
-    debug!("Can't get read lock to see next task");
     return NextTask::Waiting;
   }
 
@@ -386,24 +379,19 @@ impl Pipeline {
     }
 
     // Now check if my tasks are finished
-    debug!("Getting read lock for task_finished");
-    if let Ok(store) = self.store.read() {
-      if let Some(key_store) = store.get(&task_id) {
-        // Scan all inputs in all key stores
-        for input_store in key_store.values() {
-          for input in input_store.values() {
-            match input {
-              AssignmentStatus::Finished => {},
-              // If there are Assigned and Unassigned tasks this task is not finished
-              _ => return false,
-            }
+    if let Some(key_store) = self.store.get(&task_id) {
+      // Scan all inputs in all key stores
+      for input_store in key_store.values() {
+        for input in input_store.values() {
+          match input {
+            AssignmentStatus::Finished => {},
+            // If there are Assigned and Unassigned tasks this task is not finished
+            _ => return false,
           }
         }
-        // All inputs in the key stores are finished so this task is finished
-        return true;
-      } else {
-        return false;
       }
+      // All inputs in the key stores are finished so this task is finished
+      return true;
     } else {
       return false;
     }
@@ -415,24 +403,19 @@ impl Pipeline {
     key: String,
     task_input: TaskInput
   ) -> Result<AssignmentStatus, PipelineError> {
-    debug!("Getting read lock for get_task_input_status");
-    if let Ok(store) = self.store.read() {
-      if let Some(key_store) = store.get(&task_id) {
-        if let Some(input_store) = key_store.get(&key) {
-          if let Some(assignment_status) = input_store.get(&task_input) {
-            debug!("Found the item");
-            Ok(assignment_status.clone())
-          } else {
-            return Err(PipelineError::TaskInputNotFound);
-          }
+    if let Some(key_store) = self.store.get(&task_id) {
+      if let Some(input_store) = key_store.get(&key) {
+        if let Some(assignment_status) = input_store.get(&task_input) {
+          debug!("Found the item");
+          Ok(assignment_status.clone())
         } else {
-          return Err(PipelineError::KeyNotFound);
+          return Err(PipelineError::TaskInputNotFound);
         }
       } else {
-        return Err(PipelineError::TaskIdNotFound);
+        return Err(PipelineError::KeyNotFound);
       }
     } else {
-      return Err(PipelineError::CantReadStore);
+      return Err(PipelineError::TaskIdNotFound);
     }
   }
 
@@ -466,35 +449,27 @@ impl Pipeline {
     );
     // Store -[TaskNode]-> KeyStore -[Key]-> InputStore -[TaskInput]-> Status
     // If any key in the nested map is not there create the entry
-    loop {
-      debug!("Trying to get write lock for upsert");
-      if let Ok(mut store) = self.store.try_write() {
-        let mut key_store = match store.remove(&task_id) {
-          Some(x) => x,
-          None => KeyStore::new(),
-        };
 
-        let mut input_store = match key_store.remove(&key) {
-          Some(x) => x,
-          None => InputStore::new(),
-        };
+    let mut key_store = match self.store.remove(&task_id) {
+      Some(x) => x,
+      None => KeyStore::new(),
+    };
 
-        // Last nested level, just dump the content and replace
-        let _ = input_store.remove(&input);
+    let mut input_store = match key_store.remove(&key) {
+      Some(x) => x,
+      None => InputStore::new(),
+    };
 
-        // Now nest them back
-        input_store.insert(input, status);
-        key_store.insert(key, input_store);
-        store.insert(task_id, key_store);
+    // Last nested level, just dump the content and replace
+    let _ = input_store.remove(&input);
 
-        // Break the wait loop
-        debug!("Upsert successful");
-        break;
-      } else {
-        debug!("Couldn't get write lock, waiting 150 ms");
-        thread::sleep(Duration::from_micros(150));
-      }
-    }
+    // Now nest them back
+    input_store.insert(input, status);
+    key_store.insert(key, input_store);
+    self.store.insert(task_id, key_store);
+
+    // Break the wait loop
+    debug!("Upsert successful");
   }
 
 
@@ -862,8 +837,7 @@ mod tests {
     let key = super::START_KEY.to_string();
 
     assert!(
-      task_pipeline
-        .store.read().unwrap()
+      task_pipeline.store
         .get(&task1).unwrap()
         .get(&key).unwrap()
         .get(&task_input).unwrap()
@@ -871,8 +845,7 @@ mod tests {
     );
 
     assert!(
-      task_pipeline
-        .store.read().unwrap()
+      task_pipeline.store
         .get(&task2).unwrap()
         .get(&key).unwrap()
         .get(&task_input).unwrap()
@@ -906,23 +879,20 @@ mod tests {
 
     // First nest
     assert!(
-      task_pipeline
-        .store.read().unwrap()
+      task_pipeline.store
         .contains_key(&task1)
     );
 
     // Second nest
     assert!(
-      task_pipeline
-        .store.read().unwrap()
+      task_pipeline.store
         .get(&task1).unwrap()
         .contains_key(&key)
     );
 
     // Last nest
     assert!(
-      task_pipeline
-        .store.read().unwrap()
+      task_pipeline.store
         .get(&task1).unwrap()
         .get(&key).unwrap()
         .contains_key(&task_input)
@@ -930,8 +900,7 @@ mod tests {
 
     // The Gem
     assert!(
-      task_pipeline
-        .store.read().unwrap()
+      task_pipeline.store
         .get(&task1).unwrap()
         .get(&key).unwrap()
         .get(&task_input).unwrap()
@@ -949,23 +918,20 @@ mod tests {
     // Test again
     // First nest
     assert!(
-      task_pipeline
-        .store.read().unwrap()
+      task_pipeline.store
         .contains_key(&task1)
     );
 
     // Second nest
     assert!(
-      task_pipeline
-        .store.read().unwrap()
+      task_pipeline.store
         .get(&task1).unwrap()
         .contains_key(&key)
     );
 
     // Last nest
     assert!(
-      task_pipeline
-        .store.read().unwrap()
+      task_pipeline.store
         .get(&task1).unwrap()
         .get(&key).unwrap()
         .contains_key(&task_input)
@@ -973,8 +939,7 @@ mod tests {
 
     // The Gem
     assert!(
-      task_pipeline
-        .store.read().unwrap()
+      task_pipeline.store
         .get(&task1).unwrap()
         .get(&key).unwrap()
         .get(&task_input).unwrap()

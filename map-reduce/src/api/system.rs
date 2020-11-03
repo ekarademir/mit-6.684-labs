@@ -232,7 +232,7 @@ pub async fn finished_task(
         Ok(body) => {
             match serde_json::from_reader::<_, tasks::FinishedTask>(body.reader()) {
                 Ok(result) => {
-                    info!("Finished task received: {:?}", result.task);
+                    info!("Finished task received: {:?}", result);
                     // Prep ack channel
                     let (ack_tx, ack_rx) = oneshot::channel::<bool>();
                     // Server can get online before task running thread can receive it

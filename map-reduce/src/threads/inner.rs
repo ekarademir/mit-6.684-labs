@@ -74,26 +74,30 @@ async fn wait_for_task(
         oneshot::Sender<bool>
     )>
 ) {
-    info!("Waiting for tasks");
     let (
         host,
         boot_instant,
-        master,
     ) = {
         let state = state.read().unwrap();
         (
             state.host.clone(),
             state.boot_instant.clone(),
-            state.master.clone(),
         )
     };
+    info!("Waiting for tasks");
+
     // TODO HACK Assign name from the state
     let my_name = {
         let uri = host.clone().parse::<Uri>().unwrap();
         uri.host().unwrap().to_string()
     };
+
     while let Some((task, ack_tx)) = task_funnel.recv().await {
         {
+            let master = {
+                let state = state.read().unwrap();
+                state.master.clone()
+            };
             debug!("Received task {:?}, setting myself Busy", task.task);
             if let Ok(mut state) = state.try_write() {
                 state.status = system::Status::Busy;

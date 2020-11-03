@@ -8,7 +8,7 @@ RUN rm -rf src/
 ADD . ./
 RUN cargo build --release
 
-FROM rust:1.46-buster as serve
+FROM rust:1.47-buster as serve
 WORKDIR /root
 COPY --from=builder /usr/src/map-reduce/target/release/map-reduce .
 ENV RUST_LOG=info
