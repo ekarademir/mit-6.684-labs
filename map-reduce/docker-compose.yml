@@ -10,6 +10,8 @@ services:
             - MAPREDUCE__HOST=http://master:3000
         ports:
             - 9001:3000
+        volumes:
+            - ./data:/root/data
     worker1:
         build:
             context: .
@@ -21,6 +23,8 @@ services:
             - MAPREDUCE__HOST=http://worker1:3000
         ports:
             - 9002:3000
+        volumes:
+            - ./data:/root/data
     worker2:
         build:
             context: .
@@ -32,4 +36,5 @@ services:
             - MAPREDUCE__HOST=http://worker2:3000
         ports:
             - 9003:3000
-
+        volumes:
+            - ./data:/root/data

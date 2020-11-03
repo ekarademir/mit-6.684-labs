@@ -40,11 +40,13 @@ impl ATask {
         }
     }
 
-    pub fn is_map(&self) -> bool {
+    #[allow(dead_code)] // For testing
+    fn is_map(&self) -> bool {
         self.kind() == TaskKind::Map
     }
 
-    pub fn is_reduce(&self) -> bool {
+    #[allow(dead_code)] // For testing
+    fn is_reduce(&self) -> bool {
         self.kind() == TaskKind::Reduce
     }
 }
@@ -83,13 +85,19 @@ impl TaskAssignment {
 }
 
 async fn count_words(input: &TaskInputs) -> TaskResult {
-    debug!("Count words!");
-    TaskResult::new()
+    debug!("Count words! {:?}", input);
+    vec![
+        ("word".to_string(), "42".to_string()),
+        ("test".to_string(), "32".to_string()),
+    ]
 }
 
 async fn sum_counts(input: &TaskInputs) -> TaskResult {
-    debug!("Sum counts!");
-    TaskResult::new()
+    debug!("Sum counts! {:?}", input);
+    vec![
+        ("word".to_string(), "seda".to_string()),
+        ("test".to_string(), "am".to_string()),
+    ]
 }
 
 

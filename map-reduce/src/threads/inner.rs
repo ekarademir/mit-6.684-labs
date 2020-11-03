@@ -1,5 +1,5 @@
 use std::fmt::Display;
-use std::fs;
+use std::{fs, env};
 use std::net::SocketAddr;
 use std::time::{Duration, Instant};
 use std::thread::{self, JoinHandle};
@@ -17,8 +17,8 @@ use crate::HostPort;
 use crate::tasks;
 
 const RETRY_TIMES:usize = 4;
-const BOOT_WAIT_DURATION: Duration = Duration::from_millis(200);
-const LOCK_WAIT_DURATION: Duration = Duration::from_millis(500);
+const BOOT_WAIT_DURATION: Duration = Duration::from_millis(2000);
+const LOCK_WAIT_DURATION: Duration = Duration::from_millis(5000);
 const PIPELINE_LOOP_SLEEP: Duration = Duration::from_millis(1000);
 const MIN_WORKER_THRESHOLD: usize = 1;
 
@@ -58,11 +58,12 @@ async fn wait_for_master(master_uri: Uri) -> Result<(), ()>{
 }
 
 async fn write_intermediate(filename: &String, content: String) -> io::Result<()> {
-    let mut buffer = File::create(
-        format!("/data/intermediate/{:}.txt", filename)
-    ).await?;
-
+    let path = format!("./data/intermediate/{:}.txt", filename);
+    debug!("Creating {:?}", path);
+    let mut buffer = File::create(path).await?;
+    debug!("Writing buffer");
     buffer.write_all(content.as_bytes()).await?;
+    debug!("Done");
     Ok(())
 }
 
@@ -86,6 +87,11 @@ async fn wait_for_task(
             state.master.clone(),
         )
     };
+    // TODO HACK Assign name from the state
+    let my_name = {
+        let uri = host.clone().parse::<Uri>().unwrap();
+        uri.host().unwrap().to_string()
+    };
     while let Some((task, ack_tx)) = task_funnel.recv().await {
         {
             debug!("Received task {:?}, setting myself Busy", task.task);
@@ -101,7 +107,7 @@ async fn wait_for_task(
             for (key, value) in task_result {
                 let filename = format!(
                     "int_{:}_{:}_{:}",
-                    host, key, Instant::now().duration_since(boot_instant.clone()).as_micros()
+                    my_name, key, Instant::now().duration_since(boot_instant.clone()).as_micros()
                 );
                 debug!("Writing result to {:?}", filename);
                 match write_intermediate(&filename, value).await {
@@ -211,6 +217,7 @@ async fn run_pipeline(
                     }
                 }
                 // Consume results queue
+                debug!("Trying to receive from result funnel");
                 while let Ok((result, ack)) = result_funnel.try_recv() {
                     info!("A task has been finished, {:?} with id {:?}", result.task, result.task_id);
                     if let Ok(_) = pipeline.finished_task(
@@ -319,20 +326,26 @@ pub fn spawn_inner(
 
 fn init_inputs(host: &String) -> tasks::TaskInputs {
     // TODO HACK this entire function is a hack
+    info!("Looking for inputs in {:?}/data/inputs", env::current_dir().unwrap());
     let mut inputs = Vec::new();
-    if let Ok(read_dir) = fs::read_dir("./data/inputs") {
-        for entry in read_dir {
-            let path = entry.unwrap().path();
-            let filename = path.file_stem().unwrap().to_str().unwrap();
-            if filename != ".gitignore" {
-                inputs.push(
-                    tasks::TaskInput {
-                        machine_addr: host.clone(),
-                        file: format!("{:}", filename),
-                    }
-                );
+    match fs::read_dir("./data/inputs") {
+        Ok(read_dir) => {
+            debug!("Reading contents of the folder");
+            for entry in read_dir {
+                let path = entry.unwrap().path();
+                debug!("Found {:?}", path);
+                let filename = path.file_stem().unwrap().to_str().unwrap();
+                if filename != ".gitignore" {
+                    inputs.push(
+                        tasks::TaskInput {
+                            machine_addr: host.clone(),
+                            file: format!("{:}", filename),
+                        }
+                    );
+                }
             }
-        }
+        },
+        Err(e) => error!("Can't read input folder: {:?}", e)
     }
     inputs
 }

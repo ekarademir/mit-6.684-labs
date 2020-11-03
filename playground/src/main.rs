@@ -2,26 +2,22 @@
 // Playground
 // ############################################################################
 
-use std::fs;
+use tokio::io::{self, AsyncWriteExt};
+use tokio::fs::File;
 
-fn main() {
-    println!("{:?}", visit_dirs());
-}
-
-
-// one possible implementation of walking a directory only visiting files
-fn visit_dirs() -> Vec<String> {
-    let mut inputs = Vec::new();
-    if let Ok(read_dir) = fs::read_dir("./data/inputs") {
-        for entry in read_dir {
-            let path = entry.unwrap().path();
-            let filename = path.file_stem().unwrap().to_str().unwrap();
-            if filename != ".gitignore" {
-                inputs.push(
-                    format!("{:}", filename)
-                );
-            }
-        }
+#[tokio::main]
+async fn main() {
+    async fn write_intermediate(filename: &String, content: String) -> io::Result<()> {
+        let path = format!("./data/intermediate/{:}.txt", filename);
+        println!("Creating {:?}", path);
+        let mut buffer = File::create(path).await?;
+        println!("Writing buffer");
+        buffer.write_all(content.as_bytes()).await?;
+        println!("Done");
+        Ok(())
     }
-    inputs
+    match write_intermediate(&"file".to_string(), "some content".to_string()).await {
+        Ok(_) => println!("Written"),
+        Err(e) => println!("{:?}", e)
+    }
 }

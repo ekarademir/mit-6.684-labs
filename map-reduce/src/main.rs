@@ -183,3 +183,5 @@ fn make_pipeline() -> tasks::pipeline::Pipeline {
 
 // TODO handle SIGTERM to kill threads too
 // TODO (Optional) Make it workable via https
+// TODO when master inner finishes correctly, mark status of Machine finished
+//          Then workers will read status form heartbeat and they will finish as well

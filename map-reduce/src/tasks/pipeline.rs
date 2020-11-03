@@ -29,12 +29,6 @@ enum AssignmentStatus {
   Finished
 }
 
-impl AssignmentStatus {
-  pub fn assigned() -> AssignmentStatus {
-    AssignmentStatus::Assigned(Instant::now())
-  }
-}
-
 
 pub type TaskNode = graph::NodeIndex;
 type TaskGraph = petgraph::Graph<ATask, (), petgraph::Directed>;
@@ -42,11 +36,6 @@ type InputStore = HashMap<TaskInput, AssignmentStatus>;
 type KeyStore = HashMap<String, InputStore>; // Values are task inputs to status of task
 type TaskStoreInner = HashMap<TaskNode, KeyStore>;
 type TaskStore = Arc<RwLock<TaskStoreInner>>;
-
-pub struct TaskRun {
-  task_assignment: TaskAssignment,
-
-}
 
 pub struct PipelineBuilder {
   inner: TaskGraph,
@@ -161,7 +150,8 @@ pub enum NextTask {
 }
 
 impl NextTask {
-  pub fn unpack(self) -> TaskAssignment {
+  #[allow(dead_code)] // For testing
+  fn unpack(self) -> TaskAssignment {
     match self {
       NextTask::Ready(x) => x,
       _ => panic!("I can only unpack NextTask::Ready"),
@@ -248,7 +238,8 @@ impl Pipeline {
     Ok(())
   }
 
-  pub fn is_finished(&self) -> bool {
+  #[allow(dead_code)] // For testing
+  fn is_finished(&self) -> bool {
     debug!("Checking if pipeline has finished");
     NextTask::Finished == self.next()
   }
@@ -512,6 +503,7 @@ impl Pipeline {
     prevs.len() == 0
   }
 
+  #[allow(dead_code)] // For testing
   fn is_at_end(&self, &idx: &TaskNode) -> bool {
     let nexts = self.next_tasks(&idx);
     nexts.len() == 0

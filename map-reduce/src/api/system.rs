@@ -7,7 +7,7 @@ use serde_json;
 use log::{debug, info, error};
 use tokio::sync::{mpsc, oneshot};
 use tokio::fs::File;
-use tokio::io::{self, AsyncReadExt};
+use tokio::io::AsyncReadExt;
 
 use crate::MachineState;
 use crate::tasks;
@@ -241,12 +241,12 @@ pub async fn finished_task(
                             task_finish_response.result = tasks::FinishReportStatus::Commited;
                             serde_json::to_string(&task_finish_response).unwrap()
                         } else {
-                            error!("Didn't receive assignment acknowledgement");
+                            error!("Didn't receive commit acknowledgement");
                             task_finish_response.result = tasks::FinishReportStatus::Error;
                             serde_json::to_string(&task_finish_response).unwrap()
                         }
                     } else {
-                        error!("Can't send task to task");
+                        error!("Can't send result to inner");
                         task_finish_response.result = tasks::FinishReportStatus::Error;
                         serde_json::to_string(&task_finish_response).unwrap()
                     }

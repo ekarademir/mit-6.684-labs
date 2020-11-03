@@ -8,7 +8,7 @@ use tokio::sync::mpsc;
 use crate::{MachineState, HeartbeatKillSwitch};
 use crate::system;
 
-const WAIT_DURATION:Duration = Duration::from_millis(100);
+const WAIT_DURATION:Duration = Duration::from_millis(1000);
 const NEIGHTBOR_DROP_THRESHOLD:u128 = 5_000_000_000; // ns
 
 
