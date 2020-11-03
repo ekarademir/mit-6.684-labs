@@ -67,9 +67,12 @@ impl Clone for NetworkNeighbor {
 
 impl NetworkNeighbor {
     pub async fn finish_task(&self, task: &tasks::FinishedTask) -> Result<TaskFinishResponse, errors::ResponseError> {
-        if self.status != Status::Ready {
+        if let Ok(Status::Ready) = self.health().await {
+            debug!("{:?} is Ready signaling finish task.", self.addr);
+        } else {
             return Err(errors::ResponseError::NotReadyYet);
         }
+
         let client = Client::new();
         let uri = self.addr.parse::<Uri>().unwrap();
         debug!("Parsed URI {:?}", uri);
@@ -102,24 +105,26 @@ impl NetworkNeighbor {
                         }
                     },
                     Err(e) => {
-                        error!("Couldn't parse response: {:?}", e);
+                        error!("Couldn't parse finish_task response: {:?}", e);
                         Err(errors::ResponseError::CantParseResponse)
                     }
                 },
                 Err(e)=> {
-                    error!("Couldn't aggregate response body: {:?}", e);
+                    error!("Couldn't aggregate finish_task response body: {:?}", e);
                     Err(errors::ResponseError::CantBufferContents)
                 }
             },
             Err(e) => {
-                error!("Couldn't get a response: {:?}", e);
+                error!("Couldn't get a finish_task response: {:?}", e);
                 Err(errors::ResponseError::Offline)
             }
         }
     }
 
     pub async fn assign_task(&self, task: &tasks::TaskAssignment) -> Result<TaskAssignResponse, errors::ResponseError> {
-        if self.status != Status::Ready {
+        if let Ok(Status::Ready) = self.health().await {
+            debug!("{:?} is Ready assigning task.", self.addr);
+        } else {
             return Err(errors::ResponseError::NotReadyYet);
         }
         let client = Client::new();
@@ -152,17 +157,50 @@ impl NetworkNeighbor {
                         }
                     },
                     Err(e) => {
-                        error!("Couldn't parse response: {:?}", e);
+                        error!("Couldn't parse assign_task response: {:?}", e);
                         Err(errors::ResponseError::CantParseResponse)
                     }
                 },
                 Err(e)=> {
-                    error!("Couldn't aggregate response body: {:?}", e);
+                    error!("Couldn't aggregate assign_task response body: {:?}", e);
                     Err(errors::ResponseError::CantBufferContents)
                 }
             },
             Err(e) => {
-                error!("Couldn't get a response: {:?}", e);
+                error!("Couldn't get a assign_task response: {:?}", e);
+                Err(errors::ResponseError::Offline)
+            }
+        }
+
+    }
+    pub async fn health(&self) -> Result<Status, errors::ResponseError> {
+        let client = Client::new();
+        let uri = self.addr.parse::<Uri>().unwrap();
+        let uri = format!("http://{}{}",
+                uri.host_port(),
+                endpoints::HEALTH
+            ).parse::<Uri>().unwrap();
+        match client.get(uri).await {
+            Ok(res) => match body::aggregate(res).await {
+                Ok(response_body) => match serde_json::from_reader::<_, system::HealthResponse> (
+                    response_body.reader()
+                ){
+                    Ok(health_response) => {
+                        debug!("Received response {:?}", health_response);
+                        Ok(health_response.status)
+                    },
+                    Err(e) => {
+                        error!("Couldn't parse health response: {:?}", e);
+                        Err(errors::ResponseError::CantParseResponse)
+                    }
+                },
+                Err(e)=> {
+                    error!("Couldn't aggregate health response body: {:?}", e);
+                    Err(errors::ResponseError::CantBufferContents)
+                }
+            },
+            Err(e) => {
+                error!("Couldn't get a health response: {:?}", e);
                 Err(errors::ResponseError::Offline)
             }
         }
@@ -201,17 +239,17 @@ impl NetworkNeighbor {
                                 heartbeat_response.status
                             },
                             Err(e) => {
-                                error!("Couldn't parse response: {:?}", e);
+                                error!("Couldn't parse heartbeat response: {:?}", e);
                                 Status::Error
                             }
                         },
                         Err(e)=> {
-                            error!("Couldn't aggregate response body: {:?}", e);
+                            error!("Couldn't aggregate heartbeat response body: {:?}", e);
                             Status::Error
                         }
                     },
                     Err(e) => {
-                        error!("Couldn't get a response: {:?}", e);
+                        error!("Couldn't get a heartbeat response: {:?}", e);
                         Status::Offline
                     }
                 }

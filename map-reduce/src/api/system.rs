@@ -25,7 +25,7 @@ pub use super::network_neighbor::{
 #[derive(Debug, Serialize, Deserialize)]
 pub struct HealthResponse {
     kind: MachineKind,
-    status: Status,
+    pub status: Status,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -238,10 +238,11 @@ pub async fn finished_task(
                     // Server can get online before task running thread can receive it
                     if let Ok(_) = result_sender.try_send((result, ack_tx)) {
                         if let Ok(true) = ack_rx.await {
+                            debug!("Received commit acknowledgement from inner");
                             task_finish_response.result = tasks::FinishReportStatus::Commited;
                             serde_json::to_string(&task_finish_response).unwrap()
                         } else {
-                            error!("Didn't receive commit acknowledgement");
+                            error!("Didn't receive commit acknowledgement from inner");
                             task_finish_response.result = tasks::FinishReportStatus::Error;
                             serde_json::to_string(&task_finish_response).unwrap()
                         }

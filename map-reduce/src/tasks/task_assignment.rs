@@ -95,8 +95,8 @@ async fn count_words(input: &TaskInputs) -> TaskResult {
 async fn sum_counts(input: &TaskInputs) -> TaskResult {
     debug!("Sum counts! {:?}", input);
     vec![
-        ("word".to_string(), "seda".to_string()),
-        ("test".to_string(), "am".to_string()),
+        ("wordreduced".to_string(), "seda".to_string()),
+        ("testreduced".to_string(), "am".to_string()),
     ]
 }
 

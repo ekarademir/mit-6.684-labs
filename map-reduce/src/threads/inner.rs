@@ -20,7 +20,7 @@ const RETRY_TIMES:usize = 4;
 const BOOT_WAIT_DURATION: Duration = Duration::from_millis(2000);
 const LOCK_WAIT_DURATION: Duration = Duration::from_millis(5000);
 const PIPELINE_LOOP_SLEEP: Duration = Duration::from_millis(1000);
-const MIN_WORKER_THRESHOLD: usize = 1;
+const MIN_WORKER_THRESHOLD: usize = 2;
 
 async fn probe_health <T: Display>(addr: T) -> Result<(), ()> {
     let client = Client::new();
@@ -180,20 +180,13 @@ async fn run_pipeline(
             debug!("Getting workers list");
             let available_workers = {
                 state.read().unwrap()
-                    .workers.read().unwrap()
-                    .iter()
-                    .filter(|worker| {
-                        worker.status == system::Status::Ready
-                    })
-                    .fold(Vec::new(), |mut acc, worker| {
-                        acc.push(worker.clone());
-                        acc
-                    })
+                    .workers.read().unwrap().clone()
             };
             if available_workers.len() >= MIN_WORKER_THRESHOLD {
-                // Assign tasks to workers
+                debug!("There are {:?} workers available", available_workers.len());
+                let mut finished = false;
                 for worker in available_workers {
-                    debug!("Getting next assignment");
+                    debug!("Getting next assignment for {:?}", worker.addr);
                     match pipeline.next() {
                         tasks::NextTask::Ready(next_task) => {
                             debug!("Assigning {:?} task to {:?}", next_task.task, worker.addr);
@@ -215,10 +208,17 @@ async fn run_pipeline(
                         },
                         tasks::NextTask::Finished => {
                             info!("Pipeline is finished, exiting pipeline loop");
+                            finished = true;
                             break;
                         },
-                        tasks::NextTask::Waiting => debug!("Pipeline is waiting")
+                        tasks::NextTask::Waiting => {
+                            debug!("Pipeline is waiting");
+                            break;
+                        }
                     }
+                }
+                if finished {
+                    break;
                 }
                 // Consume results queue
                 debug!("Trying to receive from result funnel");
