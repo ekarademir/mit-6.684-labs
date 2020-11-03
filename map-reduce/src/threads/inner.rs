@@ -5,7 +5,8 @@ use std::time::{Duration, Instant};
 use std::thread::{self, JoinHandle};
 
 use log::{debug, info, error, warn};
-use hyper::{Client, Uri, StatusCode};
+use bytes::buf::BufExt as _;
+use hyper::{body, Client, StatusCode, Uri};
 use tokio::runtime::Runtime;
 use tokio::sync::{mpsc, oneshot};
 use tokio::fs::File;
@@ -15,6 +16,8 @@ use crate::api::{self, system};
 use crate::MachineState;
 use crate::HostPort;
 use crate::tasks;
+use crate::errors;
+use crate::api::endpoints;
 
 const RETRY_TIMES:usize = 4;
 const BOOT_WAIT_DURATION: Duration = Duration::from_millis(2000);
@@ -58,14 +61,56 @@ async fn wait_for_master(master_uri: Uri) -> Result<(), ()>{
     probe_health(master_uri.host_port()).await
 }
 
-async fn write_intermediate(filename: &String, content: String) -> io::Result<()> {
-    let path = format!("./data/intermediate/{:}.txt", filename);
+async fn write_file(to: &str, filename: &String, content: String) -> io::Result<()> {
+    let path = format!("./data/{:}/{:}.txt", to, filename);
     debug!("Creating {:?}", path);
     let mut buffer = File::create(path).await?;
     debug!("Writing buffer");
     buffer.write_all(content.as_bytes()).await?;
     debug!("Done");
     Ok(())
+}
+
+async fn write_intermediate(filename: &String, content: String) -> io::Result<()> {
+    write_file("intermediate", filename, content).await
+}
+
+async fn write_final(filename: &String, content: String) -> io::Result<()> {
+    write_file("outputs", filename, content).await
+}
+
+async fn request_value(from: tasks::TaskInput) -> Result<String, errors::ResponseError> {
+    let client = Client::new();
+    let uri = from.machine_addr.parse::<Uri>().unwrap();
+    let uri = format!("http://{}{}/?file={}",
+            uri.host_port(),
+            endpoints::CONTENTS,
+            from.file
+        ).parse::<Uri>().unwrap();
+    match client.get(uri).await {
+        Ok(res) => match body::aggregate(res).await {
+            Ok(response_body) => match serde_json::from_reader::<_, system::ContentResponse> (
+                response_body.reader()
+            ){
+                Ok(content_response) => {
+                    debug!("Received response {:?}", content_response);
+                    Ok(content_response.content)
+                },
+                Err(e) => {
+                    error!("Couldn't parse content response: {:?}", e);
+                    Err(errors::ResponseError::CantParseResponse)
+                }
+            },
+            Err(e)=> {
+                error!("Couldn't aggregate content response body: {:?}", e);
+                Err(errors::ResponseError::CantBufferContents)
+            }
+        },
+        Err(e) => {
+            error!("Couldn't get a content response: {:?}", e);
+            Err(errors::ResponseError::Offline)
+        }
+    }
 }
 
 async fn wait_for_task(
@@ -226,7 +271,6 @@ async fn run_pipeline(
                             }
                         },
                         tasks::NextTask::Finished => {
-                            info!("Pipeline is finished, exiting pipeline loop");
                             finished = true;
                             break;
                         },
@@ -237,6 +281,22 @@ async fn run_pipeline(
                     }
                 }
                 if finished {
+                    info!("Pipeline is finished, writing outputs");
+                    for (key, output) in pipeline.results() {
+                        let filename = format!("result_{:}", key);
+                        match request_value(output).await {
+                            Ok(contents) => match write_final(
+                                &filename,
+                                contents
+                            ).await {
+                                Ok(()) => {
+                                    info!("Written output file {:?}", filename);
+                                },
+                                Err(e) => error!("Can't write result to {:}, err: {:?}", filename, e)
+                            },
+                            Err(e) => error!("Can't write result to {:}, err: {:?}", filename, e)
+                        }
+                    }
                     break;
                 }
                 // Consume results queue

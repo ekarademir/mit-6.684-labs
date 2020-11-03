@@ -1,8 +1,6 @@
 use std::ops::Index;
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
-use std::thread;
 
 use petgraph::{
   self,
@@ -20,7 +18,8 @@ use super::task_assignment::{
 };
 
 const START_KEY: &str = "GRAPH_START";
-const REASSIGN_TRESHOLD:Duration = Duration::from_secs(60 * 5); // 5 minutes
+// const REASSIGN_TRESHOLD:Duration = Duration::from_secs(60 * 5); // 5 minutes
+const REASSIGN_TRESHOLD:Duration = Duration::from_secs(20); // 20 seconds
 
 #[derive(Debug, PartialEq, Clone)]
 enum AssignmentStatus {
@@ -119,7 +118,6 @@ pub enum PipelineError {
   TaskIdNotFound,
   KeyNotFound,
   TaskInputNotFound,
-  CantReadStore,
   MalformedTaskInputs,
 }
 
@@ -357,11 +355,28 @@ impl Pipeline {
     }
   }
 
+  pub fn results(&self) -> Vec<(String, TaskInput)> {
+    let mut final_results: Vec<(String, TaskInput)> = Vec::new();
+    if let Some(last_task) = self.ordered.last() {
+      if let Some(key_store) = self.store.get(last_task) {
+        for (key, input_store) in key_store.iter() {
+          for input in input_store.keys() {
+            final_results.push((
+              key.clone(), input.clone()
+            ));
+          }
+        }
+      }
+    }
+    final_results
+  }
+
   // TODO task check can be optimized with some caching
   fn have_parents_finished(&self, &task_id: &TaskNode) -> bool {
     debug!("Checking if all parents have finished");
     for parent in self.previous_tasks(&task_id) {
       if !self.task_finished(&parent) {
+        debug!("Parent {:?} haven't finished", self[&parent]);
         return false;
       }
     }
@@ -382,11 +397,14 @@ impl Pipeline {
     if let Some(key_store) = self.store.get(&task_id) {
       // Scan all inputs in all key stores
       for input_store in key_store.values() {
-        for input in input_store.values() {
-          match input {
+        for (input, status) in input_store.iter() {
+          match status {
             AssignmentStatus::Finished => {},
             // If there are Assigned and Unassigned tasks this task is not finished
-            _ => return false,
+            _ => {
+              debug!("Me, {:?}, have unfinished input {:?}", self[&task_id], input);
+              return false
+            },
           }
         }
       }
