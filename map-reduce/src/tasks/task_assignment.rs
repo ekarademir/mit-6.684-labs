@@ -61,13 +61,18 @@ pub struct TaskAssignment {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ResultPair {
+    pub key: String,
+    pub input: TaskInput
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct FinishedTask {
     pub task: ATask,
     pub finished: TaskInputs,
     pub task_id: u32,
     pub key: String,
-    pub result: TaskInput,
-    pub result_key: String,
+    pub result: Vec<ResultPair>,
 }
 
 // TODO Find a better serialization method for results, maybe Generics

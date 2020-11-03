@@ -26,6 +26,7 @@ pub use task_assignment::{
     TaskInput,
     TaskInputs,
     FinishedTask,
+    ResultPair,
 };
 
 pub use pipeline::{

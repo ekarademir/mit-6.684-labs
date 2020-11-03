@@ -21,6 +21,7 @@ const BOOT_WAIT_DURATION: Duration = Duration::from_millis(2000);
 const LOCK_WAIT_DURATION: Duration = Duration::from_millis(5000);
 const PIPELINE_LOOP_SLEEP: Duration = Duration::from_millis(1000);
 const MIN_WORKER_THRESHOLD: usize = 2;
+const COMMIT_TRY_COUNT: usize = 10;
 
 async fn probe_health <T: Display>(addr: T) -> Result<(), ()> {
     let client = Client::new();
@@ -108,6 +109,8 @@ async fn wait_for_task(
             info!("Starting execution of {:?}, with input {:?}", task.task, task.input);
 
             let task_result = task.execute().await;
+            let mut results: Vec<tasks::ResultPair> = Vec::new();
+            debug!("Execution finished, writing results to disk");
             for (key, value) in task_result {
                 let filename = format!(
                     "int_{:}_{:}_{:}",
@@ -116,28 +119,44 @@ async fn wait_for_task(
                 debug!("Writing result to {:?}", filename);
                 match write_intermediate(&filename, value).await {
                     Ok(()) => {
-                        debug!("Write successful, signaling to master");
-                        let finished_task = tasks::FinishedTask {
-                            task: task.task,
-                            finished: task.input.clone(),
-                            task_id: task.task_id,
-                            key: task.key.clone(),
-                            result_key: key.clone(),
-                            result: tasks::TaskInput {
-                                machine_addr: host.clone(),
-                                file: filename.clone()
+                        results.push(
+                            tasks::ResultPair {
+                                key,
+                                input: tasks::TaskInput {
+                                    machine_addr: host.clone(),
+                                    file: filename.clone()
+                                }
                             }
-                        };
-                        match master.clone().unwrap().finish_task(&finished_task).await {
-                            Ok(_) => info!(
-                                "Result of task {:?} for key {:?} written to file {:?} and commited to master",
-                                task.task, key, filename
-                            ),
-                            Err(e) => error!("Master did not commit the result, {:?}", e),
-                        }
+                        );
+                        debug!("Written");
                     },
                     Err(e) => error!("Error writing to {:?}, {:?}", filename, e)
                 }
+            }
+            debug!("Write successful, signaling to master");
+            let finished_task = tasks::FinishedTask {
+                task: task.task,
+                finished: task.input.clone(),
+                task_id: task.task_id,
+                key: task.key.clone(),
+                result: results
+            };
+            for i in 0..COMMIT_TRY_COUNT {
+                info!(
+                    "Trying to commit task results for task {:?}...try {:?} of {:?}",
+                    task.task, i + 1, COMMIT_TRY_COUNT
+                );
+                match master.clone().unwrap().finish_task(&finished_task).await {
+                    Ok(_) => {
+                        info!(
+                            "Results of task {:?} written to files and commited to master",
+                            task.task
+                        );
+                        break;
+                    },
+                    Err(e) => error!("Master did not commit the result, {:?}", e),
+                }
+                thread::sleep(PIPELINE_LOOP_SLEEP);
             }
 
             info!("Finished execution of {:?}, with input {:?}", task.task, task.input);
@@ -221,20 +240,35 @@ async fn run_pipeline(
                     break;
                 }
                 // Consume results queue
-                debug!("Trying to receive from result funnel");
-                while let Ok((result, ack)) = result_funnel.try_recv() {
-                    info!("A task has been finished, {:?} with id {:?}", result.task, result.task_id);
-                    if let Ok(_) = pipeline.finished_task(
-                        result.task_id,
-                        result.key,
-                        result.finished,
-                        result.result_key,
-                        result.result
-                    ) {
+                debug!("Trying to receive from finished_task funnel");
+                while let Ok((finished_task, ack)) = result_funnel.try_recv() {
+                    info!("A task has been finished, {:?} with id {:?}", finished_task.task, finished_task.task_id);
+                    let (
+                        task_id, finished_key, finished_input
+                    ) = {
+                        (finished_task.task_id, finished_task.key, finished_task.finished)
+                    };
+                    let mut all_commited = true;
+                    for result in finished_task.result {
+                        if let Ok(_) = pipeline.finished_task(
+                            task_id,
+                            finished_key.clone(),
+                            finished_input.clone(),
+                            result.key.clone(),
+                            result.input
+                        ) {
+                            debug!("Commited new key {:?}", result.key);
+                        } else {
+                            all_commited = false;
+                            break;
+                        }
+                    }
+                    if all_commited {
                         debug!("Recorded to pipeline");
                         ack.send(true).unwrap();
                     } else {
-                        error!("Can't mark the task as finished in pipeline.");
+                        error!("Some results could not be commited.");
+                        // TODO this might cause partial results. Decide what to do.
                         ack.send(false).unwrap();
                     }
                 }
