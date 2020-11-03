@@ -79,7 +79,7 @@ async fn write_final(filename: &String, content: String) -> io::Result<()> {
     write_file("outputs", filename, content).await
 }
 
-async fn request_value(from: tasks::TaskInput) -> Result<String, errors::ResponseError> {
+pub async fn request_value(from: tasks::TaskInput) -> Result<String, errors::ResponseError> {
     let client = Client::new();
     let uri = from.machine_addr.parse::<Uri>().unwrap();
     let uri = format!("http://{}{}/?file={}",

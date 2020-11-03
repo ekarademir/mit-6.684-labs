@@ -1,5 +1,9 @@
+use std::collections::HashMap;
+
 use log::debug;
 use serde::{Deserialize, Serialize};
+
+use crate::threads::request_value;
 
 // TODO Probably a macro to register a task which,
 //    * Copies the function
@@ -80,29 +84,48 @@ pub type TaskResult = Vec<(String, String)>;
 
 impl TaskAssignment {
     pub async fn execute(&self) -> TaskResult {
-        // TODO Pull the contents of the input and feed them into the functions
+        let mut contents: Vec<String> = Vec::new();
+        for task_input in self.input.clone() {
+            if let Ok(content) = request_value(task_input.clone()).await {
+                contents.push(content);
+            }
+        }
+
         match self.task {
-            ATask::CountWords => count_words(&self.input).await,
-            ATask::SumCounts => sum_counts(&self.input).await,
+            ATask::CountWords => count_words(contents).await,
+            ATask::SumCounts => sum_counts(&self.key, contents).await,
             _ => TaskResult::new(),
         }
     }
 }
 
-async fn count_words(input: &TaskInputs) -> TaskResult {
-    debug!("Count words! {:?}", input);
-    vec![
-        ("word".to_string(), "42".to_string()),
-        ("test".to_string(), "32".to_string()),
-    ]
+async fn count_words(inputs: Vec<String>) -> TaskResult {
+    let mut counts: HashMap<String, u128> = HashMap::new();
+    for input in inputs {
+        for word in input.split(' ') {
+            let counter = counts.entry(
+                word
+                    .trim()
+                    .to_lowercase()
+                    .to_string()
+            ).or_insert(0);
+            *counter += 1;
+        }
+    }
+    counts.iter()
+        .map(|(word, count)| {
+            (word.clone(), count.to_string())
+        })
+        .collect::<Vec<(String, String)>>()
 }
 
-async fn sum_counts(input: &TaskInputs) -> TaskResult {
-    debug!("Sum counts! {:?}", input);
-    vec![
-        ("wordreduced".to_string(), "seda".to_string()),
-        ("testreduced".to_string(), "am".to_string()),
-    ]
+async fn sum_counts(key: &String, input: Vec<String>) -> TaskResult {
+    let mut total: i128 = 0;
+    for count in input {
+        total += count.parse::<i128>().unwrap_or_default();
+    }
+
+    vec![(key.clone(), total.to_string())]
 }
 
 

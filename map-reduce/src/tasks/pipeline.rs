@@ -239,6 +239,7 @@ impl Pipeline {
   }
 
   pub fn next(&self) -> NextTask {
+    // TODO BUG sometimes it ignores parent map tasks
     for (node_idx, key_store) in self.store.iter() {
       debug!("Checking task {:?} which is a {:?}", self[node_idx], self[node_idx].kind());
       // We try to optimize to finish map tasks as soon as possible,

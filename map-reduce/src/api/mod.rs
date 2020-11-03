@@ -66,7 +66,6 @@ impl Service<Request<Body>> for MainService {
             if let Some(pq) = req.uri().path_and_query() {
                 if pq.path() == endpoints::CONTENTS_A {
                     if let Some(q) = pq.query() {
-                        debug!("Query is {:?}", q);
                         if q.starts_with("file=") {
                             return make_result(
                                 system::contents(

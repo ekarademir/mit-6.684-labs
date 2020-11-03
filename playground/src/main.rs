@@ -2,22 +2,37 @@
 // Playground
 // ############################################################################
 
-use tokio::io::{self, AsyncWriteExt};
-use tokio::fs::File;
+fn main() {
+    use std::collections::HashMap;
 
-#[tokio::main]
-async fn main() {
-    async fn write_intermediate(filename: &String, content: String) -> io::Result<()> {
-        let path = format!("./data/intermediate/{:}.txt", filename);
-        println!("Creating {:?}", path);
-        let mut buffer = File::create(path).await?;
-        println!("Writing buffer");
-        buffer.write_all(content.as_bytes()).await?;
-        println!("Done");
-        Ok(())
+    let mut counts: HashMap<String, u128> = HashMap::new();
+
+    let input = String::from("Osman orhan. osman");
+    for word in input.split(' ') {
+        let counter = counts.entry(
+            word
+                .to_lowercase()
+                .to_string()
+        ).or_insert(0);
+        *counter += 1;
     }
-    match write_intermediate(&"file".to_string(), "some content".to_string()).await {
-        Ok(_) => println!("Written"),
-        Err(e) => println!("{:?}", e)
+    let coco = counts.iter()
+        .map(|(word, count)| {
+            (word.clone(), count.to_string())
+        })
+        .collect::<Vec<(String, String)>>();
+
+    println!("{:?}", coco);
+
+    let coco = vec![
+        "2","4"
+    ];
+
+    let mut count: i128 = 0;
+    for val in coco {
+        count += val.parse::<i128>().unwrap_or_default();
     }
+
+    println!("{:?}", count);
+
 }

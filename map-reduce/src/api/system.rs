@@ -278,6 +278,7 @@ pub async fn contents (
         format!("./data/intermediate/{:}.txt", filename)
     ).await {
         Ok(mut f) => {
+            debug!("Reading {:} from intermediate", filename);
             let mut buffer = Vec::new();
 
             // read the whole file
@@ -298,14 +299,19 @@ pub async fn contents (
                 format!("data/inputs/{:}.txt", filename)
             ).await {
                 Ok(mut f) => {
+                    debug!("Reading {:} from inputs", filename);
                     let mut buffer = Vec::new();
 
                     // read the whole file
                     f.read_to_end(&mut buffer).await.unwrap();
                     // respond with the whole content
-                    std::str::from_utf8(&buffer).unwrap()
+                    let file_contents = std::str::from_utf8(&buffer).unwrap()
                         .trim()
-                        .to_string()
+                        .to_string();
+                    let content_response = ContentResponse {
+                        content: file_contents,
+                    };
+                    serde_json::to_string(&content_response).unwrap()
                 },
                 Err(e) => ErrorResponse::internal_problem(e.to_string())
             }
